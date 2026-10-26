@@ -1,13 +1,13 @@
 # AGENTS.md — VantSide Meta
 
-You are building an original, standalone October 26–November 4, 2026 Meta hackathon entry. Read `README.md`, `PRODUCT.md`, `DESIGN.md`, and `ARCHITECTURE.md` before making changes.
+You are building an original, standalone October 26–November 4, 2026 Meta hackathon entry. Read `README.md`, `PRODUCT.md`, `DESIGN.md`, `ARCHITECTURE.md`, and `GUARDRAILS.md` before making changes.
 
 ## Hard constraints
 1. **New hackathon code only.** Do not copy any pre-event VantSide file, source function, component, asset, or configuration into the submitted project. The original VantSide may be inspected for concepts only, read-only, if access is explicitly granted. Do not modify it.
 2. Keep the new repository public-safe: no secrets, personal transcripts, private resumes, confidential screenshots, or unlicensed assets. Keep `.env.local`, build output, logs, and uploaded documents out of Git.
 3. Use Meta models meaningfully. The P0 loop must be real spoken question -> Meta voice transcription -> Meta reasoning -> live visual cue. A fixture may accelerate development but cannot be represented as actual live model output.
 4. The signature opening black ribbon/white perspective-dot animation must be authored anew from reference screenshots. Respect reduced motion.
-5. Focus on **practice interviews**, not covert assistance during prohibited real interviews. Avoid job screening, personality scoring, generic RAG/chatbot, or dashboard-centric features.
+5. Follow `GUARDRAILS.md`: focus on **practice interviews** and source-backed memory cues, not covert assistance or restricted assessment answers. Avoid job screening, personality scoring, generic RAG/chatbot, or dashboard-centric features.
 6. Never generate invented career facts, fake numerical outcomes, or fabricated source attribution.
 7. Never assume specific Meta SDK or streaming endpoints without consulting current official docs. Run integration smoke tests and document confirmed behavior.
 8. Do not spend money or enable auto-billing without explicit approval. Promotional credits are not necessarily a hard limit.

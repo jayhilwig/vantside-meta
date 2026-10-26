@@ -41,6 +41,8 @@ Do not build applicant screening, personality scoring, covert interview assistan
 - Second-person speaker differentiation, supplemental document formats, Baseten latency benchmarking, more elaborate animations.
 
 ## 5. Explicit exclusions
+See [GUARDRAILS.md](GUARDRAILS.md) for the practice-only boundary, evidence requirements, restricted evaluations, consent, retention, and conservative fallback behavior.
+
 - Live hidden assistance in actual employer interviews; sessions are designated mock/practice.
 - Employer candidate screening, applicant ranking, or personality inference.
 - A generic resume chatbot, dashboard-first workflow, or simple RAG/search demo.
