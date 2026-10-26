@@ -3,7 +3,7 @@
 **Version:** Hackathon scope, October 26, 2026  
 **Theme:** Build for Your World  
 **Track:** Indie Developer  
-**Status:** Proposed scope; not a claim of implemented functionality
+**Status:** Milestone 1 code is in place: text-simulated practice questions, synthetic example matching, and a server-side Muse Spark cue route. A full route smoke test remains pending. Voice, personal-material import, and the Tauri desktop shell remain unimplemented.
 
 ## 1. Problem and proposition
 During stressful conversations people struggle to recall specific examples and metrics from their own experience. Traditional interview-preparation tools generate scripts or generic chat responses. VantSide Meta instead presents *small, timely visual memory cues*, grounded in the user's own documented work, during an explicitly consensual practice interview.
@@ -16,18 +16,17 @@ Primary user: an experienced professional practicing interviews about complex pa
 Do not build applicant screening, personality scoring, covert interview assistance, or claims about hiring outcomes.
 
 ## 3. Primary journey
-1. **Prepare:** Upload PDF resume and optionally project screenshots or portfolio PDFs. Display import progress, source names, and privacy note.
-2. **Verify memory:** AI extracts candidate project entries. User reviews and corrects claims before activation. Each fact has an evidence source or is labeled unverified.
-3. **Start practice:** Select a sample role or free-form session. Microphone access is explicit, with visible live/pause/stop controls. Explain what audio processing occurs.
-4. **Talk:** As a practice partner asks a question, streaming transcription provides usable utterances and detects turns. A reasoning service matches utterances to the memory and returns a small structured cue.
-5. **See cues:** The active card shows project title, up to three keywords/facts, a metric where verified, and an optional evidence indicator. Update or gracefully retain a cue as context changes. No paragraph-length generated answer.
-6. **Finish:** Stop capture immediately; optionally view transcript and cue timeline. Deletion is straightforward.
+1. **Prepare (Milestone 1):** Start with a small, clearly labeled set of synthetic project examples.
+2. **Practice (Milestone 1):** Type or select a simulated interviewer question. No microphone is used.
+3. **See cues (Milestone 1):** A server-side Muse Spark request matches the question to approved synthetic facts. The validated visual card shows a project, up to three short cue phrases, and expandable source notes. No unsupported outcome or metric is introduced.
+4. **Later:** Import and review personal materials, use explicit microphone permission and Meta Voice Transcribe, then connect final transcript turns to the same cue flow.
 
 ## 4. MVP priorities
 ### P0 — Must work for the three-minute demo
-- New app with usable desktop-first responsive UI and opening animation.
-- One seeded demo profile **with synthetic or explicitly shareable information**, editable before use.
-- Meta Muse Spark call from server-side code returning validated structured JSON cue data.
+- New app with usable desktop-first responsive UI and opening animation. **Done in Milestone 1.**
+- A clearly labeled synthetic demo profile. **Done in Milestone 1.**
+- Server-side Muse Spark call with schema validation. **Implemented in Milestone 1; live route smoke test pending.**
+- Text input to exercise questions and follow-ups before voice integration. **Done in Milestone 1.**
 - Meta Muse Voice Transcribe streaming speech-to-text with clear microphone permissions and transcript state. Validate service/browser integration first.
 - Event-driven cue updates when a new interview question or significant follow-up is detected.
 - UI states: idle, microphone permission, listening, thinking, cue ready, error, stopped.
@@ -57,7 +56,7 @@ Do not build applicant screening, personality scoring, covert interview assistan
 - Keyboard accessible controls and reduced-motion accommodation.
 
 ## 7. Testable acceptance criteria
-1. A fresh browser session can launch the practice workflow with explicit microphone permissions.
+1. A fresh Tauri desktop session can launch the practice workflow with explicit microphone permissions; the current browser/text demo is an interim step.
 2. At least three different spoken questions elicit distinct, relevant cues using actual Meta inference.
 3. A follow-up changes or refines the existing card without flooding the UI with text.
 4. Every factual cue is traceable to a memory item and no unsupported numerical outcome is invented.
@@ -74,3 +73,13 @@ Do not build applicant screening, personality scoring, covert interview assistan
 
 ## 9. Success metric
 Primary: reliable spoken-question-to-relevant-visual-cue loop. Secondary: latency measured at p50/p95, source attribution accuracy, fraction of questions with appropriate cues, recoverability, and demo quality. No numerical performance target is asserted before empirical measurements.
+
+## 10. Desktop and provider direction
+
+- Target a Tauri 2 desktop application for Windows x64, macOS Intel, and macOS Apple Silicon. Keep the current Next.js/React visual language and newly authored opening animation.
+- For the hackathon, use Meta models exclusively. The shared Meta key stays on a hosted backend; it must not ship in the Tauri binary, static frontend, or GitHub Actions artifacts.
+- The long-term open-source edition will support BYOK and provider choice (Meta, OpenAI, and compatible services). Keep transcription, reasoning, and vision behind separate provider contracts so the practice UI is not tied to a vendor. No additional provider is part of the hackathon scope.
+- Later BYOK credentials belong in secure local storage reached through the Tauri native boundary, not browser storage or a bundled configuration file. A user-supplied key is distinct from the hackathon's shared server key.
+- Before November 4, prioritize one reliable desktop spoken-question → Meta transcription → Meta reasoning → grounded cue demonstration. Windows x64 is the first runtime target; macOS Intel and Apple Silicon build artifacts and device permission checks follow. A CI build alone does not establish working microphone or window behavior on either Mac architecture.
+- Keep the compact cue within the practice window for the initial desktop demo. A separate floating, always-on-top window is a later enhancement after focus, accessibility, and cross-platform behavior are tested.
+- If voice or a platform build remains unverified at submission time, describe the text demo and available artifacts accurately; do not present them as a completed spoken or cross-platform experience.

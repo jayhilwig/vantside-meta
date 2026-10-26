@@ -1,18 +1,16 @@
 # VantSide Meta
 
-**A live visual memory interface for spoken interview practice.**
+**A live visual memory interface for interview practice.**
 
-VantSide Meta is a new, standalone Indie Developer entry for the Meta Global AI Developer Hackathon, October 26–November 4, 2026. It listens during a consensual practice interview, recognizes the topic of the conversation, and surfaces short, evidence-backed visual cues drawn from the participant's own career materials.
+VantSide Meta is a new, standalone Indie Developer entry for the Meta Global AI Developer Hackathon, October 26–November 4, 2026. The Milestone 1 demo accepts simulated interviewer questions as text and surfaces compact cues from clearly labeled synthetic examples. Voice capture and personal career materials are not implemented yet.
 
 ## The experience
-1. Import a resume and optionally an image or PDF of past work.
-2. Review a structured career memory of projects, facts, outcomes, and supporting evidence.
-3. Choose a mock-interview scenario, grant microphone access, and start a clearly labeled practice session.
-4. As questions are spoken, see relevant, compact, updating visual cards—not a wall of generated answers.
-5. Stop the session; optionally review its transcript and cue history.
+1. Type or choose a simulated interviewer question.
+2. Muse Spark matches it to a small set of clearly labeled synthetic examples.
+3. Review a concise visual cue and expand its cited synthetic source notes.
 
 ## The one thing the demo must prove
-A spoken question causes an appropriate, trustworthy cue to appear quickly, and a follow-up question causes the cue to update appropriately. This must work in a real session, not only in a prerecorded animation.
+An interview question causes a relevant, source-backed cue to appear, and a follow-up changes the cue appropriately. Milestone 1 exercises this loop with text input and synthetic examples; voice integration remains future work.
 
 ## Hackathon boundary
 - This is a **fresh implementation**, not a fork or repackaging of the pre-hackathon VantSide codebase.
@@ -28,11 +26,16 @@ A spoken question causes an appropriate, trustworthy cue to appear quickly, and 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Meta AI services, data flow, security, testing
 - [AGENTS.md](AGENTS.md) — instructions for Codex and other coding agents
 
-## Proposed stack
-Next.js / React / TypeScript / Tailwind; Meta Model API for Muse Spark and Muse Voice Transcribe. Local-first storage for demo materials where practical. Exact audio transport and SDK integration must be validated against current official documentation before implementation.
+## Stack
+Next.js App Router, React, TypeScript, Tailwind CSS, Zod, and the Meta Model API using Muse Spark 1.3. The cue route runs server-side and reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` from the environment. Voice transcription is not included in Milestone 1.
 
 ## Local setup
-To be filled in after the new application is initialized. Do not add example API keys or live customer data to the public repository.
+1. Use Node.js 20.9 or newer.
+2. Install dependencies with `npm install`.
+3. Copy `.env.example` to `.env.local` and set the Meta API variables.
+4. Run `npm run dev` and open `http://localhost:3000`.
+
+Run `npm run lint`, `npm run typecheck`, and `npm run build` before sharing changes. Never put keys in client-side code or commit `.env.local`.
 
 ## Credit and billing safety
 The developer account shows $150 in promotional credits, but a payment method is required to make Model API calls. Do not assume notifications are hard spending limits. Confirm actual balance, account controls, and billing behavior before testing live calls.

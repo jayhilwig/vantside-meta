@@ -1,10 +1,11 @@
 # VantSide Meta — Technical Architecture
 
-**Goal:** A new, publicly auditable, Meta-native prototype built during the hackathon. Model and transport details are candidates until verified with live docs and an actual request.
+**Goal:** A new, publicly auditable, Meta-native prototype built during the hackathon. The target runtime is Tauri 2 on Windows x64, macOS Intel, and macOS Apple Silicon. Model and voice transport details remain candidates until verified with current official docs and live requests.
 
 ## 1. Stack and boundaries
-- UI: React / Next.js / TypeScript / Tailwind CSS; desktop-first practice view.
-- Server: Next.js route handlers for orchestration and Meta inference; never expose keys to client-side bundles.
+- UI: React / Next.js / TypeScript / Tailwind CSS; preserve the current practice view and opener inside a Tauri 2 desktop shell.
+- Current server: Next.js route handlers for orchestration and Meta inference. The existing browser demo calls a same-origin `POST /api/cue` route.
+- Hackathon desktop backend: host the Meta-facing API separately over HTTPS. The shared Meta key remains on that server, never in static assets, the Tauri binary, CI artifacts, or client-side environment variables.
 - Primary inference: Meta Model API, Muse Spark 1.3 for textual/multimodal interpretation and structured cue construction.
 - Voice: Muse Voice Transcribe 1.0, with streamed audio and session lifecycle handled according to the **official voice API protocol** (verify transport, authentication and sample rate before implementation).
 - Persistence: in-memory or local browser storage for demo; carefully limit any storage of uploads or transcript data. No database unless a demonstrated need exists.
@@ -25,14 +26,14 @@ User-supplied resume / portfolio materials
    -> user approval / correction
    -> approved CareerMemory records
 
-User microphone (explicit permission)
-   -> audio capture and stream bridge (validated Meta voice transport)
-   -> Muse Voice Transcribe (streaming turns/speaker information)
-   -> stable utterance / question event
+Simulated interviewer question (text input, Milestone 1)
+   -> server-side Next.js route
    -> cue orchestrator (coalescing + cancellation + relevance logic)
    -> Muse Spark (approved memory + current conversational context)
    -> validated Cue JSON (source IDs required)
    -> React floating visual cue card
+
+Future voice path: user microphone (explicit permission) -> validated Meta Voice Transcribe stream -> stable utterance/question event -> the same cue route.
 ```
 
 ## 3. Data contracts (initial proposal)
@@ -107,5 +108,56 @@ Any metric displayed must be supported by an `approved` source fact. If match is
 7. Add multimodal upload extraction if time remains; use approved sample memory as a viable fallback.
 8. Create a reliable test path for API failure, permission denial, and no-match.
 
-## 8. Definition of done
+## 8. Milestone 1 implementation
+- `POST /api/cue` reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` only in a Node.js route handler. It sends a short question and the synthetic examples to `/chat/completions`; credentials never reach the browser.
+- The request uses JSON mode, `reasoning_effort: "minimal"`, `max_completion_tokens: 512`, and `store: false`.
+- Zod validates the generated shape and enforces that cited fact IDs belong to the selected synthetic project. A no-match response cannot cite facts.
+- Upstream errors, malformed JSON, and schema failures return a generic user-facing message. Upstream response bodies and keys are not logged or relayed.
+- The opening ribbon and perspective dot field are newly authored SVG/CSS. Reduced-motion preference skips the timed intro and disables motion.
+- The current UI is a text simulation only. Voice capture, personal document import, persistence, and full live-session device controls remain future work.
+- Lint, TypeScript, and a Webpack production build passed in Milestone 1. The local environment could not complete a `localhost` HTTP request to the built app, so a live end-to-end `/api/cue` smoke test remains outstanding.
+
+## 9. Definition of done
 A clean install works, the repo is public and credential-free, spoken practice questions create *live Meta-derived* source-backed visual cues, errors can recover, and the three-minute video identifies newly built functionality clearly.
+
+## 10. Tauri compatibility and packaging decision
+
+- `src/app/page.tsx`, `src/components/practice-app.tsx`, `src/app/globals.css`, the SVG opener, synthetic examples, and the local Manrope font can form a static frontend. Browser-only APIs used by the opener run in an effect. Confirm asset paths and font loading in a packaged WebView on each OS.
+- A Tauri build of Next.js needs a separate desktop static-export target (`output: 'export'`) whose `out/` directory becomes Tauri's `frontendDist`. Keep the existing hosted/browser build until its API route is split out. Do not simply switch the current `next.config.ts` to export mode: `src/app/api/cue/route.ts` is a request-dependent `POST` handler and cannot execute in a static export.
+- Move the cue route into a separately deployed backend build, sharing the career-example data contract and cue schema. The static desktop frontend will call that backend through a small transport adapter; the current `fetch('/api/cue')` is same-origin and would point at a nonexistent bundled route in Tauri.
+- Keep request validation, Meta response parsing, source-ID checks, and error redaction on the backend. Add authenticated demo sessions, per-session quotas/rate limits, and an overall spending limit before distributing a client that calls the shared-key backend. CORS or an embedded app token alone does not authorize requests from a public binary.
+- Use Tauri capabilities and a restrictive CSP for the bundled UI, allowing only the required backend origin and native commands. Do not give a remotely loaded page broad native access. Do not package a local Node sidecar containing the shared Meta key.
+- The current synchronous cue route is a starting point, not a proven voice-stream bridge. Validate Meta Voice Transcribe's current transport and the hosting platform's streaming/connection limits before choosing a persistent service or native-to-server bridge.
+
+## 11. Provider boundary (design only)
+
+- **Transcription provider:** receives an explicitly started audio session and emits typed partial/final utterances, status, and errors. Audio capture and OS permission handling stay in a separate platform adapter.
+- **Reasoning provider:** receives a stable practice question plus approved, source-linked facts and returns the validated `VisualCue` contract, including a safe no-match result.
+- **Vision provider:** receives a user-approved image/PDF source and proposes source-linked facts for review; it cannot silently approve facts.
+- Select Meta implementations only in the hackathon backend. Preserve the same domain contracts for a later desktop BYOK edition, where native code retrieves a user's key for a request without returning it to the WebView. Prefer OS-backed credential storage; evaluate Tauri Stronghold with a user-derived unlock secret if an encrypted vault is needed. Never hard-code a vault password.
+
+## 12. Planned GitHub Actions matrix
+
+| Runner | Rust target | Output goal |
+| --- | --- | --- |
+| `windows-latest` | `x86_64-pc-windows-msvc` | Windows x64 installer/app bundle |
+| `macos-latest` | `x86_64-apple-darwin` | macOS Intel app/DMG |
+| `macos-latest` | `aarch64-apple-darwin` | macOS Apple Silicon app/DMG |
+
+For each job: check out the fresh repository, set up Node and stable Rust with the matrix target, run `npm ci`, lint/typecheck, build the static desktop frontend, run `tauri-apps/tauri-action`, and upload architecture-labeled artifacts. CI must not receive `MODEL_API_KEY`; it builds only the public client. Treat unsigned CI artifacts as build checks. Signed/notarized macOS releases and signed Windows distribution are separate release gates requiring protected secrets and platform-specific setup. Runtime microphone and window QA require actual devices on each target architecture.
+
+## 13. Platform risks and gates
+
+- **Microphone:** Request permission only after the user starts practice; show recording state and stop capture on session end, navigation, or permission loss. macOS bundles need `NSMicrophoneUsageDescription` in `Info.plist`, plus WebView behavior testing. Windows uses WebView2 and its own device-permission path. Browser success does not prove either packaged app works.
+- **Streaming transcription:** Confirm Meta's actual protocol, audio format/sample rate, reconnect and cancellation behavior, and backend hosting limits before implementation. Measure question-to-cue latency with real speech; partial transcripts must not flood the reasoning service.
+- **Floating windows:** An always-on-top cue can obscure interview content, steal focus, or become difficult to dismiss. First ship the cue inside the practice window; later test position, click behavior, multi-monitor/full-screen interactions, accessibility, and per-platform window permissions before enabling a separate overlay.
+- **Security and permissions:** Tauri capabilities should grant only required commands to the local WebView. Keep network destinations explicit in CSP, do not log raw audio or credentials, and never let a public executable impersonate a trusted backend client by itself.
+
+Platform references: [Tauri Next.js guide](https://v2.tauri.app/start/frontend/nextjs/), [Next.js static export limits](https://nextjs.org/docs/app/guides/static-exports), [Tauri GitHub pipeline](https://v2.tauri.app/distribute/pipelines/github/), [Tauri macOS microphone plist](https://v2.tauri.app/distribute/macos-application-bundle/), [Tauri capabilities](https://v2.tauri.app/security/capabilities/), [Tauri Stronghold](https://v2.tauri.app/plugin/stronghold/).
+
+## 14. Implementation order through November 4
+
+1. Separate the hosted Meta API from a static Next.js frontend; protect the shared-key endpoint, then prove a text-question cue through the packaged Windows x64 Tauri shell.
+2. Verify Meta Voice Transcribe's official stream protocol and prove one microphone → final transcript path on Windows before integrating question-to-cue updates.
+3. Test permission denial, stop/recovery, source grounding, and real spoken follow-ups on the Windows demo machine. Keep the existing text input as an explicitly labeled fallback.
+4. Run the three-target CI matrix and manually test macOS Intel and Apple Silicon where devices are available. Do not claim runtime support from CI artifacts alone; defer separate floating windows, BYOK, and additional providers.
