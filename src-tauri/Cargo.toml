@@ -1,0 +1,20 @@
+[package]
+name = "vantside_meta"
+version = "0.1.0"
+description = "VantSide Meta practice desktop shell"
+license = "MIT"
+repository = "https://github.com/jayhilwig/vantside-meta"
+edition = "2024"
+rust-version = "1.90"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "vantside_meta_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.5", features = [] }

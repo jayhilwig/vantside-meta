@@ -10,6 +10,8 @@ const suggestedQuestions = [
   "Describe a complex workflow you made easier to understand.",
 ];
 
+const cueApiBaseUrl = process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787";
+
 const openerDots = Array.from({ length: 14 * 36 }, (_, index) => {
   const row = Math.floor(index / 36);
   const column = index % 36;
@@ -82,7 +84,7 @@ export function PracticeApp() {
     setError("");
 
     try {
-      const response = await fetch("/api/cue", {
+      const response = await fetch(`${cueApiBaseUrl.replace(/\/$/, "")}/cue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: nextQuestion }),

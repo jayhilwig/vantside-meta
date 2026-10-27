@@ -24,16 +24,21 @@ An interview question causes a relevant, source-backed cue to appear, and a foll
 - [PRODUCT.md](PRODUCT.md) — scope, users, workflow, acceptance criteria
 - [DESIGN.md](DESIGN.md) — visual system and interaction requirements
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Meta AI services, data flow, security, testing
+
+- [GUARDRAILS.md](GUARDRAILS.md) — practice, evidence, consent, and restricted-evaluation boundaries
 - [AGENTS.md](AGENTS.md) — instructions for Codex and other coding agents
 
 ## Stack
-Next.js App Router, React, TypeScript, Tailwind CSS, Zod, and the Meta Model API using Muse Spark 1.3. The cue route runs server-side and reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` from the environment. Voice transcription is not included in Milestone 1.
+Tauri 2 with a static-exported Next.js App Router frontend, React, TypeScript, Tailwind CSS, Zod, and the Meta Model API using Muse Spark 1.3. A separate loopback-only Node cue service reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` from the environment. The desktop bundle contains no Meta credentials. Voice transcription is not included yet.
 
 ## Local setup
 1. Use Node.js 20.9 or newer.
 2. Install dependencies with `npm install`.
-3. Copy `.env.example` to `.env.local` and set the Meta API variables.
-4. Run `npm run dev` and open `http://localhost:3000`.
+3. Copy `.env.example` to `.env.local` and set the Meta API variables. Keep `NEXT_PUBLIC_CUE_API_BASE_URL` on loopback; it is a public build-time address, not a credential.
+4. Run `npm run backend:dev` in one terminal. It binds only to `127.0.0.1:8787` by default. If you change `CUE_API_PORT`, set `NEXT_PUBLIC_CUE_API_BASE_URL` to the matching loopback origin before building the frontend.
+5. Run `npm run dev` for the browser preview, or `npm run tauri dev` for the Windows shell. The backend must remain running for cues.
+
+The desktop frontend can be packaged with `npm run tauri build -- --no-bundle`. It exports to `out/`. No hosted API is deployed: origin checks and in-process request limits on the local service do not authenticate users. A public HTTPS deployment needs server-side session authentication, durable per-user quotas, and a spending cap before the client URL can be changed.
 
 Run `npm run lint`, `npm run typecheck`, and `npm run build` before sharing changes. Never put keys in client-side code or commit `.env.local`.
 

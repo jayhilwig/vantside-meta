@@ -4,11 +4,11 @@
 
 ## 1. Stack and boundaries
 - UI: React / Next.js / TypeScript / Tailwind CSS; preserve the current practice view and opener inside a Tauri 2 desktop shell.
-- Current server: Next.js route handlers for orchestration and Meta inference. The existing browser demo calls a same-origin `POST /api/cue` route.
-- Hackathon desktop backend: host the Meta-facing API separately over HTTPS. The shared Meta key remains on that server, never in static assets, the Tauri binary, CI artifacts, or client-side environment variables.
+- Current prototype server: `backend/server.ts` exposes `POST /cue` on `127.0.0.1` only. It retains the original Muse Spark request and source-validation behavior in `backend/cue-handler.ts`. The static frontend calls a build-time configured loopback URL.
+- Hosted hackathon backend target: a separate HTTPS service with real user/session authentication, durable quotas, and a spending cap. The current loopback service must not be publicly deployed. The shared Meta key remains on the server, never in static assets, the Tauri binary, CI artifacts, or client-side environment variables.
 - Primary inference: Meta Model API, Muse Spark 1.3 for textual/multimodal interpretation and structured cue construction.
 - Voice: Muse Voice Transcribe 1.0, with streamed audio and session lifecycle handled according to the **official voice API protocol** (verify transport, authentication and sample rate before implementation).
-- Persistence: in-memory or local browser storage for demo; carefully limit any storage of uploads or transcript data. No database unless a demonstrated need exists.
+- Persistence: session state stays in memory. No raw audio or transcript persistence is implemented or permitted by default. No database unless a demonstrated need exists.
 - Optional after MVP: Baseten Muse Spark Open for comparison; do not require it for startup or demo.
 
 Official references (verify updated SDK shapes and model availability at implementation time):
@@ -27,7 +27,7 @@ User-supplied resume / portfolio materials
    -> approved CareerMemory records
 
 Simulated interviewer question (text input, Milestone 1)
-   -> server-side Next.js route
+   -> loopback-only cue service (hosted HTTPS service after authentication)
    -> cue orchestrator (coalescing + cancellation + relevance logic)
    -> Muse Spark (approved memory + current conversational context)
    -> validated Cue JSON (source IDs required)
@@ -109,13 +109,13 @@ Any metric displayed must be supported by an `approved` source fact. If match is
 8. Create a reliable test path for API failure, permission denial, and no-match.
 
 ## 8. Milestone 1 implementation
-- `POST /api/cue` reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` only in a Node.js route handler. It sends a short question and the synthetic examples to `/chat/completions`; credentials never reach the browser.
+- The original `POST /api/cue` was moved to the separate loopback-only `POST /cue` service. It reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` only in Node.js, then sends a short question and the synthetic examples to `/chat/completions`; credentials never reach the browser.
 - The request uses JSON mode, `reasoning_effort: "minimal"`, `max_completion_tokens: 512`, and `store: false`.
 - Zod validates the generated shape and enforces that cited fact IDs belong to the selected synthetic project. A no-match response cannot cite facts.
 - Upstream errors, malformed JSON, and schema failures return a generic user-facing message. Upstream response bodies and keys are not logged or relayed.
 - The opening ribbon and perspective dot field are newly authored SVG/CSS. Reduced-motion preference skips the timed intro and disables motion.
 - The current UI is a text simulation only. Voice capture, personal document import, persistence, and full live-session device controls remain future work.
-- Lint, TypeScript, and a Webpack production build passed in Milestone 1. The local environment could not complete a `localhost` HTTP request to the built app, so a live end-to-end `/api/cue` smoke test remains outstanding.
+- Lint, TypeScript, and a Webpack production build passed in Milestone 1. The static desktop build and mocked cue contract have since passed; a packaged Windows runtime and live desktop-to-Meta request remain unverified.
 
 ## 9. Definition of done
 A clean install works, the repo is public and credential-free, spoken practice questions create *live Meta-derived* source-backed visual cues, errors can recover, and the three-minute video identifies newly built functionality clearly.
@@ -123,8 +123,9 @@ A clean install works, the repo is public and credential-free, spoken practice q
 ## 10. Tauri compatibility and packaging decision
 
 - `src/app/page.tsx`, `src/components/practice-app.tsx`, `src/app/globals.css`, the SVG opener, synthetic examples, and the local Manrope font can form a static frontend. Browser-only APIs used by the opener run in an effect. Confirm asset paths and font loading in a packaged WebView on each OS.
-- A Tauri build of Next.js needs a separate desktop static-export target (`output: 'export'`) whose `out/` directory becomes Tauri's `frontendDist`. Keep the existing hosted/browser build until its API route is split out. Do not simply switch the current `next.config.ts` to export mode: `src/app/api/cue/route.ts` is a request-dependent `POST` handler and cannot execute in a static export.
-- Move the cue route into a separately deployed backend build, sharing the career-example data contract and cue schema. The static desktop frontend will call that backend through a small transport adapter; the current `fetch('/api/cue')` is same-origin and would point at a nonexistent bundled route in Tauri.
+- Next.js now uses `output: 'export'`; `out/` is Tauri's `frontendDist`. The request-dependent `POST` route was removed from the frontend and moved to the separate loopback server. The frontend URL is configured with `NEXT_PUBLIC_CUE_API_BASE_URL` at build time; builds reject non-loopback URLs until hosted authentication exists.
+- The cue service shares the career-example data contract and cue schema. Its loopback binding, origin check, 2 KiB request cap, one in-flight request, and per-process request quotas limit accidental/local abuse. These controls are not user authentication and must not be treated as sufficient for public hosting.
+- Windows x64 is the first packaging target. The shell has no custom native commands or microphone access yet, and its CSP allows only local cue-service connections.
 - Keep request validation, Meta response parsing, source-ID checks, and error redaction on the backend. Add authenticated demo sessions, per-session quotas/rate limits, and an overall spending limit before distributing a client that calls the shared-key backend. CORS or an embedded app token alone does not authorize requests from a public binary.
 - Use Tauri capabilities and a restrictive CSP for the bundled UI, allowing only the required backend origin and native commands. Do not give a remotely loaded page broad native access. Do not package a local Node sidecar containing the shared Meta key.
 - The current synchronous cue route is a starting point, not a proven voice-stream bridge. Validate Meta Voice Transcribe's current transport and the hosting platform's streaming/connection limits before choosing a persistent service or native-to-server bridge.

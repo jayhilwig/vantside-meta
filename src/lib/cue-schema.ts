@@ -17,6 +17,9 @@ export const cueSchema = z
     if (cue.match === "none" && (cue.projectId !== null || cue.sourceFactIds.length > 0)) {
       context.addIssue({ code: "custom", message: "No-match cues cannot cite a project or facts." });
     }
+    if (cue.match === "none" && cue.headline !== "No verified memory match") {
+      context.addIssue({ code: "custom", message: "No-match cues need the neutral headline." });
+    }
     if (cue.match === "verified" && (!cue.projectId || cue.sourceFactIds.length === 0)) {
       context.addIssue({ code: "custom", message: "Matched cues need a project and source facts." });
     }
@@ -25,6 +28,12 @@ export const cueSchema = z
       const validProjectFacts = new Set<string>(project?.facts.map((fact) => fact.id) ?? []);
       if (cue.sourceFactIds.some((factId) => !validProjectFacts.has(factId))) {
         context.addIssue({ code: "custom", message: "Cited facts must belong to the selected project." });
+      }
+      const sourceText = project?.facts.filter((fact) => cue.sourceFactIds.includes(fact.id)).map((fact) => fact.text).join(" ") ?? "";
+      const sourceNumbers = new Set(sourceText.match(/\d+(?:[.,]\d+)*/g) ?? []);
+      const cueNumbers = `${cue.headline} ${cue.cuePhrases.join(" ")}`.match(/\d+(?:[.,]\d+)*/g) ?? [];
+      if (cueNumbers.some((number) => !sourceNumbers.has(number))) {
+        context.addIssue({ code: "custom", message: "Numerical claims need cited evidence." });
       }
     }
   });

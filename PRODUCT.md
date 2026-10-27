@@ -3,7 +3,7 @@
 **Version:** Hackathon scope, October 26, 2026  
 **Theme:** Build for Your World  
 **Track:** Indie Developer  
-**Status:** Milestone 1 code is in place: text-simulated practice questions, synthetic example matching, and a server-side Muse Spark cue route. A full route smoke test remains pending. Voice, personal-material import, and the Tauri desktop shell remain unimplemented.
+**Status:** The text-only practice UI and synthetic cue flow are packaged for a Tauri 2 desktop shell. The Meta cue service runs separately on loopback for this prototype; Windows runtime and live desktop cue behavior still require manual verification. Voice and personal-material import remain unimplemented.
 
 ## 1. Problem and proposition
 During stressful conversations people struggle to recall specific examples and metrics from their own experience. Traditional interview-preparation tools generate scripts or generic chat responses. VantSide Meta instead presents *small, timely visual memory cues*, grounded in the user's own documented work, during an explicitly consensual practice interview.
@@ -25,7 +25,7 @@ Do not build applicant screening, personality scoring, covert interview assistan
 ### P0 — Must work for the three-minute demo
 - New app with usable desktop-first responsive UI and opening animation. **Done in Milestone 1.**
 - A clearly labeled synthetic demo profile. **Done in Milestone 1.**
-- Server-side Muse Spark call with schema validation. **Implemented in Milestone 1; live route smoke test pending.**
+- Server-side Muse Spark call with schema validation. **Implemented in the separate loopback service; packaged desktop request remains to be manually verified.**
 - Text input to exercise questions and follow-ups before voice integration. **Done in Milestone 1.**
 - Meta Muse Voice Transcribe streaming speech-to-text with clear microphone permissions and transcript state. Validate service/browser integration first.
 - Event-driven cue updates when a new interview question or significant follow-up is detected.
