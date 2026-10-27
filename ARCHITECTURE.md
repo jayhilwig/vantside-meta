@@ -20,21 +20,25 @@ Official references (verify updated SDK shapes and model availability at impleme
 
 ## 2. Logical data flow
 ```text
-User-supplied resume / portfolio materials
-   -> secure temporary parsing / multimodal extraction (Muse Spark)
-   -> proposed career facts with source references
-   -> user approval / correction
-   -> approved CareerMemory records
-
-Simulated interviewer question (text input, Milestone 1)
+CURRENT TEXT PROTOTYPE
+Clearly labeled synthetic examples + simulated interviewer question
    -> loopback-only cue service (hosted HTTPS service after authentication)
-   -> cue orchestrator (coalescing + cancellation + relevance logic)
-   -> Muse Spark (approved memory + current conversational context)
+   -> Muse Spark
    -> validated Cue JSON (source IDs required)
-   -> React floating visual cue card
+   -> React visual cue card
 
-Future voice path: user microphone (explicit permission) -> validated Meta Voice Transcribe stream -> stable utterance/question event -> the same cue route.
+PLANNED FOUR-STEP PRODUCT PATH (not implemented)
+1 Your Resume: PDF -> temporary Meta extraction -> proposed source-linked facts
+   -> user review/correction -> approved Career Memory seed
+2 Let's Talk: explicit microphone start -> Meta transcription -> adaptive foundational questions
+   -> proposed examples -> user review -> editable approved Career Memory
+3 The Opportunity: pasted/uploaded job description -> proposed company -> user confirmation
+   -> opportunity context; optional sourced public research and labeled interviewer suggestions
+4 Practice: final mock-interview question + approved memory + confirmed opportunity
+   -> Meta reasoning -> validated, source-backed compact cue
 ```
+
+Do not gate progression on interview duration. A short first conversation can establish a useful starter memory; later continuation should use approved facts and an opt-in summary, never default long-term raw audio or transcript retention. Company and interviewer research is optional and cannot silently promote a suggested identity to verified fact.
 
 ## 3. Data contracts (initial proposal)
 ```ts
@@ -66,6 +70,7 @@ type VisualCue = {
 };
 ```
 Any metric displayed must be supported by an `approved` source fact. If match is `none`, return an empty project ID, empty source facts, and safe fallback UI.
+For the planned four-step flow, a resume upload or transcript produces *proposed* facts only; user approval creates eligible Career Memory. Opportunity context needs the job-description source, a user-confirmed company, and separate public-research items with source URL, retrieval time, and `verified` or `suggested` status. Never infer an interviewer identity from a name or role match alone. These are contracts to design before implementation, not current storage or endpoints.
 
 ## 4. Real-time orchestration
 - Prefer final transcript segments or high-confidence speech boundaries to avoid firing model calls on every word.
@@ -94,6 +99,7 @@ Any metric displayed must be supported by an `approved` source fact. If match is
 - Do not emit tokens in logs, telemetry, error messages, demos or Git commits.
 - Validate types, MIME, and upload sizes. Strip or minimize document content submitted to model APIs; use shareable synthetic sample data for public demos.
 - Never place personal career memory, identifiable interviewer documents, raw audio, or transcripts in the public repo.
+- Keep raw audio and working transcripts in active-session memory by default. A resumed session across launches needs separately designed, opt-in summaries or approved memory persistence with a clear retention and deletion policy; do not treat raw transcript storage as the shortcut.
 - Explicitly disclose third-party AI processing and account billing mode in development docs.
 - Important: Meta dashboard states free-credit content may be used for product improvement. Confirm current account privacy/billing terms before sending private career or employer material. Avoid sensitive materials during hackathon testing.
 - Default to consensual mock interviewing; no stealth capture or support for violating interview rules.
@@ -158,7 +164,8 @@ Platform references: [Tauri Next.js guide](https://v2.tauri.app/start/frontend/n
 
 ## 14. Implementation order through November 4
 
-1. Separate the hosted Meta API from a static Next.js frontend; protect the shared-key endpoint, then prove a text-question cue through the packaged Windows x64 Tauri shell.
-2. Verify Meta Voice Transcribe's official stream protocol and prove one microphone → final transcript path on Windows before integrating question-to-cue updates.
-3. Test permission denial, stop/recovery, source grounding, and real spoken follow-ups on the Windows demo machine. Keep the existing text input as an explicitly labeled fallback.
-4. Run the three-target CI matrix and manually test macOS Intel and Apple Silicon where devices are available. Do not claim runtime support from CI artifacts alone; defer separate floating windows, BYOK, and additional providers.
+1. Protect the shared-key endpoint before public hosting, and prove a text-question cue through the packaged Windows x64 Tauri shell. The present service remains loopback-only.
+2. Verify Meta Voice Transcribe's official stream protocol and prove one microphone → final transcript → grounded cue path on Windows.
+3. Only after that core loop is reliable, add the thinnest functional four-step path: reviewed PDF facts, a short adaptive foundational conversation, pasted job description with confirmed company, then job-specific Practice. Gate each step on validated output and label incomplete features honestly. Public company/interviewer research and cross-launch resumption are optional later work.
+4. Test permission denial, stop/recovery, source grounding, and real spoken follow-ups on the Windows demo machine. Keep the existing text input as an explicitly labeled fallback.
+5. Run the three-target CI matrix and manually test macOS Intel and Apple Silicon where devices are available. Do not claim runtime support from CI artifacts alone; defer separate floating windows, BYOK, and additional providers.

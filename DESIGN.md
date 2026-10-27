@@ -20,16 +20,21 @@ Rebuild the animation **from scratch** using CSS/SVG/Canvas as appropriate, with
 - Include accessible reduced-motion behavior and meaningful loading text for assistive technology.
 - Maintain good proportions at desktop sizes and graceful clipping on smaller screens.
 
-## 3. Main app layout
-- Top-left logo/wordmark; settings discreetly top-right.
-- Large headline with one emphatic weight shift; short setup explanation.
-- Compact preparation area for career material and approved facts.
-- Primary CTA: Start practice / Go Live; action green in the app, with clear disabled and busy states.
-- Use roomy column layouts and centered max content width; avoid dense analytics panels.
+## 3. Main app layout and progression
+- Preserve Manrope Variable, the current brand styling, and the animated opener. After the opener, use one roomy main screen rather than a conventional multi-page wizard.
+- Top-left logo/wordmark; settings discreetly top-right. Use extremely little explanatory text: the four step names, a brief status, and one clear next action should carry the flow.
+- Show four large numbered steps in order: **1 Your Resume**, **2 Let's Talk**, **3 The Opportunity**, **4 Practice**. The number and name establish hierarchy; do not replace them with a dense dashboard or long instructions.
+- Show honest states: available, in progress, needs review, complete, or locked. Unlock after meaningful completion, not mere upload, elapsed interview time, or a decorative checkmark. Identify exactly what needs attention when a step is blocked.
+- Users can reopen earlier steps to correct or enrich their information. Updates to Career Memory or opportunity context should be visible before the next practice session; do not force a restart of the journey.
+- Keep the primary action clear and green, with disabled and busy states. A synthetic demo must be labeled separately from personalized Practice. Do not show paywalls, billing controls, or unsupported actions as operational in the hackathon MVP.
+- Use roomy columns and a centered content width; collapse gracefully at smaller widths without hiding step status or navigation.
 
 ## 4. Components and patterns from screenshots (new implementations)
-### Preparation cards
-Thin dark border and rounded corners. Large green sequential numerals (1, 2, 3) indicate preparation flow. Card headers have small uppercase eyebrow, role/title, supporting metadata, and bottom actions.
+### Four step cards
+Thin dark border and rounded corners. Large green sequential numerals (1, 2, 3, 4) lead each step. Keep card copy to a short status and action; reveal source detail and editing controls only when the user opens a step. A locked card stays legible and explains its one missing prerequisite without pretending to work.
+
+### Resume, conversation, and opportunity detail
+These are target states, not controls present in the current text prototype. The Resume step accepts a PDF and distinguishes uploaded, extracting, needs review, and approved facts. Let's Talk shows explicit microphone state and a concise editable Career Memory; a short first conversation can complete a useful starter memory, with optional continuation. The Opportunity step accepts pasted or uploaded job descriptions, asks the user to confirm the company, and separates sourced public facts from suggested company or interviewer matches. Optional research cannot block Practice.
 
 ### Career Memory review dialog
 White modal over a dimmed background. Large readable heading, understated source and theme labels, fact statements in comfortable paragraph line height. Supporting evidence expandable. Close button in a dedicated footer. Do not make this modal the central demo feature.
@@ -57,7 +62,7 @@ Optional simple tabs for Summary and Transcript, similar in spirit to the screen
 - Microcopy: plain language (e.g., 'Listening', 'Finding a relevant example', 'No verified match', 'Stop practice').
 
 ## 6. What not to recreate for the event
-The source screenshots also show opportunity tracking, interviewer tabs, JD alignment percentages, accumulated interviews, and detailed memory summaries. These explain the larger VantSide product, but are **not** MVP requirements. Do not copy their content/layout wholesale or let them turn the prototype into a dashboard.
+The source screenshots also show detailed opportunity tracking, interviewer tabs, JD alignment percentages, accumulated interviews, and detailed memory summaries. The lightweight **The Opportunity** step is part of the target journey; those deeper tracking and analytics views are not MVP requirements. Do not copy their content/layout wholesale or turn the four-step screen into a dashboard.
 
 ## 7. Screenshot provenance
 Reference-only screenshots supplied by the project owner on October 26, 2026: black ribbon startup states, device preflight, interview summary dialog, foundational memory dialog, career memory dialog, opportunity/detail cards, homepage, and Meta billing view. The billing screenshot is *not* product UI guidance. Do not include private interview notes, names, resumes, or billing screenshots as public repo assets without review.
