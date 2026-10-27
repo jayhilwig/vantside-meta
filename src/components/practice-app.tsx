@@ -12,15 +12,28 @@ const suggestedQuestions = [
 
 const cueApiBaseUrl = process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787";
 
-const openerDots = Array.from({ length: 14 * 36 }, (_, index) => {
-  const row = Math.floor(index / 36);
-  const column = index % 36;
-  const x = 24 + column * 40;
-  const y = 42 + row * 34;
-  const centerDistance = Math.abs(column - 17.5) / 17.5;
-  const radius = 0.7 + centerDistance * 1.5 + (row % 2) * 0.08;
-  return <circle key={`${row}-${column}`} cx={x} cy={y} r={radius} style={{ animationDelay: `${((row * 7 + column * 3) % 24) * 55}ms` }} />;
-});
+const ribbonPath = "M0 100 Q1024 220 2048 100 L2048 380 Q1024 260 0 380Z";
+const openerDots = Array.from({ length: 19 }, (_, column) => {
+  const distance = 120 + column * 49;
+  const progress = distance / 1002;
+  const radius = 1.25 + 8.75 * progress * progress;
+  const rowOffset = 18 + 106 * progress * progress;
+
+  return [-1, 1].flatMap((side) =>
+    [-1, 0, 1].map((row) => {
+      const y = 240 + row * rowOffset;
+      return (
+        <circle key={`${side}-${column}-${row}`} cx={1024 + side * distance} cy={y} r={radius}>
+          {row !== 0 && (
+            <animate attributeName="cy" from={240 + row * rowOffset * 0.55} to={y}
+              begin="0.16s" dur="1.42s" fill="freeze" calcMode="spline"
+              keyTimes="0;1" keySplines="0.33 0 0.2 1" />
+          )}
+        </circle>
+      );
+    }),
+  );
+}).flat();
 
 function BrandMark({ small = false }: { small?: boolean }) {
   return (
@@ -33,32 +46,50 @@ function BrandMark({ small = false }: { small?: boolean }) {
   );
 }
 
-function OpeningSequence({ onFinish }: { onFinish: () => void }) {
+function OpeningSequence({ onFinish, ready = true }: { onFinish: () => void; ready?: boolean }) {
+  const [minimumElapsed, setMinimumElapsed] = useState(false);
+
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       onFinish();
       return;
     }
-    const timer = window.setTimeout(onFinish, 1650);
+    const timer = window.setTimeout(() => setMinimumElapsed(true), 2050);
     return () => window.clearTimeout(timer);
   }, [onFinish]);
 
   return (
-    <div className="opening-sequence" aria-label="VantSide practice room loading">
+    <div className={`opening-sequence${minimumElapsed && ready ? " is-exiting" : ""}`}
+      aria-label="VantSide practice room loading"
+      onAnimationEnd={(event) => { if (event.target === event.currentTarget) onFinish(); }}>
       <span className="sr-only" role="status">Starting VantSide practice room</span>
-      <svg className="opening-ribbon" viewBox="0 0 1440 520" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <svg className="opening-ribbon" viewBox="0 0 2048 480" aria-hidden="true">
         <defs>
           <clipPath id="ribbon-shape">
-            <path d="M0 62 C310 62 420 189 720 189 C1020 189 1130 62 1440 62 L1440 458 C1130 458 1020 331 720 331 C420 331 310 458 0 458Z" />
+            <path d={ribbonPath} />
+          </clipPath>
+          <clipPath id="dot-reveal">
+            <rect x="1024" y="0" width="0" height="480">
+              <animate attributeName="x" from="1024" to="0" begin="0.16s" dur="1.42s"
+                fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.33 0 0.2 1" />
+              <animate attributeName="width" from="0" to="2048" begin="0.16s" dur="1.42s"
+                fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.33 0 0.2 1" />
+            </rect>
           </clipPath>
         </defs>
-        <path className="ribbon-fill" d="M0 62 C310 62 420 189 720 189 C1020 189 1130 62 1440 62 L1440 458 C1130 458 1020 331 720 331 C420 331 310 458 0 458Z" />
-        <g clipPath="url(#ribbon-shape)" className="ribbon-dots">{openerDots}</g>
+        <path className="ribbon-fill" d={ribbonPath} />
+        <g clipPath="url(#ribbon-shape)">
+          <g clipPath="url(#dot-reveal)" className="ribbon-dots">{openerDots}</g>
+        </g>
       </svg>
       <div className="opening-brand">
-        <BrandMark />
-        <span className="opening-wordmark">VantSide</span>
-        <span className="opening-caption">Practice room</span>
+        <div className="opening-brand-line">
+          <svg className="opening-vf" viewBox="0 0 52 30" aria-hidden="true">
+            <path d="M0 2h7l8 18L23 2h7L18 28h-6L0 2ZM29 2h23v5H35v6h14v5H35v10h-6V2Z" fill="currentColor" />
+          </svg>
+          <span className="opening-wordmark">VantSide</span>
+        </div>
+        <span className="opening-caption">Starting...</span>
       </div>
       <button className="opening-skip" onClick={onFinish}>Skip intro</button>
     </div>
