@@ -1,50 +1,56 @@
 # VantSide Meta
 
-**A live visual memory interface for interview practice.**
+**Your experience. Ready when you need it.**
 
-VantSide Meta is a new, standalone Indie Developer entry for the Meta Global AI Developer Hackathon, October 26–November 4, 2026. The current prototype has a session-only four-step text flow: PDF resume review, a short foundational conversation, opportunity confirmation, and grounded Practice. A separate synthetic cue demo remains available. Voice capture is not implemented yet.
+VantSide is a living professional Career Memory: a place to build a source-grounded understanding of your work through a resume and conversations, then recall relevant experience while preparing for a specific opportunity. The intended product supports growth across sessions and opportunities.
 
-## The experience
-1. Upload a resume PDF, review Muse Spark's proposed facts, and approve them.
-2. Build Career Memory in a short text conversation, then save and continue.
-3. Paste or upload a job description and confirm the company and role.
-4. Practice with text questions and cues sourced from approved memory. A clearly labeled synthetic test mode is also available.
+Built as a new desktop prototype for the **Meta Global AI Developer Hackathon (October 26–November 4, 2026)**.
 
-## The one thing the demo must prove
-An interview question causes a relevant, source-backed cue to appear. The four-step flow is implemented with text and in-memory session data; voice integration and cross-restart persistence remain future work. Personal document and cue paths require live Meta verification on the Windows desktop.
+## How it works
 
-## Hackathon boundary
-- This is a **fresh implementation**, not a fork or repackaging of the pre-hackathon VantSide codebase.
-- Pre-existing VantSide concepts and visual references are disclosed. No pre-hackathon source files, custom assets, or configuration are imported into this submission.
-- The submitted repository contains only work created during the hackathon (plus clearly identified third-party dependencies and permitted datasets).
-- The three-minute demo opens by identifying the pre-existing concept and the new implementation.
-- Public repo: keep API keys, private resumes, transcripts, and confidential work artifacts out of Git.
-- Hackathon submission due November 4, 2026, 9:00 PM ET / 6:00 PM PT.
+1. **Your Resume** — Add a resume and review proposed career facts.
+2. **Let's Talk** — Build an approved Career Memory through a foundational conversation; return to deepen it.
+3. **The Opportunity** — Add a job description and confirm the company and role.
+4. **Your Interview** — Practice with compact reminders grounded in your approved experience.
 
-## Documentation
-- [PRODUCT.md](PRODUCT.md) — scope, users, workflow, acceptance criteria
-- [DESIGN.md](DESIGN.md) — visual system and interaction requirements
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Meta AI services, data flow, security, testing
+In the intended product, Career Memory carries forward between opportunities, while job-specific information stays with the relevant opportunity. Proposed career facts require user review before approval.
 
-- [GUARDRAILS.md](GUARDRAILS.md) — practice, evidence, consent, and restricted-evaluation boundaries
-- [AGENTS.md](AGENTS.md) — instructions for Codex and other coding agents
+## What we're building for the hackathon
 
-## Stack
-Tauri 2 with a static-exported Next.js App Router frontend, React, TypeScript, Tailwind CSS, Zod, and the Meta Model API using Muse Spark 1.3. A separate loopback-only Node service reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` from the environment. It handles one-off inline PDF extraction, opportunity identification, and cues. The desktop bundle contains no Meta credentials. Uploaded PDFs, transcripts, and Career Memory stay in active-session memory only. Voice transcription is not included yet.
+A new Tauri 2 desktop experience using Meta models for resume understanding and evidence-grounded visual cues. The current static Next.js build has a four-step **text** flow: PDF fact proposals and approval, a short foundational text conversation, pasted or PDF job-description identification and confirmation, and personalized text-to-cue practice. The loopback-only Node backend keeps the Meta key server-side and handles extraction and cues, but personal PDF and packaged desktop calls still need live verification.
 
-## Local setup
-1. Use Node.js 20.9 or newer.
-2. Install dependencies with `npm install`.
-3. Copy `.env.example` to `.env.local` and set the Meta API variables. Keep `NEXT_PUBLIC_CUE_API_BASE_URL` on loopback; it is a public build-time address, not a credential.
-4. Run `npm run backend:dev` in one terminal. It binds only to `127.0.0.1:8787` by default. If you change `CUE_API_PORT`, set `NEXT_PUBLIC_CUE_API_BASE_URL` to the matching loopback origin before building the frontend.
-5. Run `npm run dev` for the browser preview, or `npm run tauri dev` for the Windows shell. The backend must remain running for cues.
+Voice transcription, profession inference, cross-restart Career Memory, multi-opportunity and round history, and company/interviewer research are **not implemented**. The current Career Memory and job context exist only during the active app session.
 
-The desktop frontend can be packaged with `npm run tauri build -- --no-bundle`. It exports to `out/`. No hosted API is deployed: origin checks and in-process request limits on the local service do not authenticate users. A public HTTPS deployment needs server-side session authentication, durable per-user quotas, and a spending cap before the client URL can be changed.
+- **Platforms:** Windows x64 first; macOS Intel and Apple Silicon build targets.
+- **AI:** Muse Spark currently; Muse Voice Transcribe is planned.
+- **Experience:** Practice sessions only; no microphone capture is active yet and no covert interview assistance is offered.
+- **Future direction:** Open-source, provider-independent BYOK (bring your own key).
 
-Run `npm run lint`, `npm run typecheck`, and `npm run build` before sharing changes. Never put keys in client-side code or commit `.env.local`.
+## Run locally
 
-## Credit and billing safety
-The developer account shows $150 in promotional credits, but a payment method is required to make Model API calls. Do not assume notifications are hard spending limits. Confirm actual balance, account controls, and billing behavior before testing live calls.
+Requires Node.js 20.9 or newer and the Tauri 2 toolchain for desktop development. Copy `.env.example` to `.env.local` and configure the Meta variables first. Keep `NEXT_PUBLIC_CUE_API_BASE_URL` on loopback; it is a public build-time address, not a credential. The backend binds to `127.0.0.1:8787` by default.
 
-## License
-Follow the license selected on the new GitHub repository; don't import the original app's code or assets as a shortcut.
+```powershell
+npm install
+npm run backend:dev
+```
+
+In a second terminal:
+
+```powershell
+npm run tauri -- dev
+```
+
+Never commit `.env.local`. The current backend is local to your machine; it is **not** a secured public API service. A public deployment needs real authentication, durable request quotas, and a spending cap.
+
+## Project documentation
+
+- [PRODUCT.md](PRODUCT.md) — product journey and priorities
+- [DESIGN.md](DESIGN.md) — interface and motion
+- [ARCHITECTURE.md](ARCHITECTURE.md) — models, services, memory architecture
+- [GUARDRAILS.md](GUARDRAILS.md) — consent, evidence, and interview boundaries
+- [AGENTS.md](AGENTS.md) — development instructions
+
+## Hackathon disclosure
+
+The VantSide concept predates the event. This repository contains a newly authored hackathon implementation, not the original application's code. The final demo will distinguish the new work from the earlier concept. Submission deadline: November 4, 2026, 9 PM Eastern.
