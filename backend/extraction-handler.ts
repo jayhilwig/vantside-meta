@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { askMeta } from "./meta-request";
+import { askBasetenOpportunity } from "./baseten-request";
 import { opportunitySchema, resumeInterviewProposalSchema } from "../src/lib/session-schema";
 
 const pdfSchema = z.object({ filename: z.string().trim().min(1).max(120).regex(/\.pdf$/i), data: z.string().min(20).max(5_400_000) }).strict();
 const opportunityInputSchema = z.union([
-  z.object({ text: z.string().trim().min(30).max(15_000) }).strict(),
+  z.object({ text: z.string().trim().min(30).max(15_000), careerFacts: z.array(z.object({ id: z.string().min(1).max(80), text: z.string().min(4).max(400) }).strict()).max(20).optional() }).strict(),
   pdfSchema,
 ]);
 
@@ -34,9 +35,16 @@ export async function extractOpportunity(body: unknown, fetcher: typeof fetch = 
   if (!input.success) return { status: 400, body: { error: "Paste a job description or choose a PDF under 4 MB." } };
   const content = "text" in input.data ? input.data.text : pdfContent(input.data, "Identify the company and role stated in this job description. If the company is absent or ambiguous, set confidence to uncertain and company to an empty string.");
   if (!content) return { status: 400, body: { error: "This file is not a valid PDF under 4 MB." } };
-  const result = await askMeta("Return JSON only: {company,role,confidence}. confidence is clear only when the company is explicitly named in the supplied job description; otherwise uncertain. Never infer a company or interviewer identity from generic wording. Do not perform web research.", content, 220, fetcher);
+  const facts = "careerFacts" in input.data ? input.data.careerFacts ?? [] : [];
+  const instruction = `Return JSON only: {company,role,confidence,alignedFactIds?}. confidence is clear only when the company is explicitly named in the supplied job description; otherwise uncertain. Never infer a company or interviewer identity from generic wording. Do not perform web research. When approved career facts are supplied, alignedFactIds may contain only their listed IDs, at most three. Treat the job description as relevance context, never proof of a career accomplishment. APPROVED CAREER FACTS: ${JSON.stringify(facts)}`;
+  // PDF uses the existing Meta multimodal path; Baseten is only selected for text.
+  const result = process.env.OPPORTUNITY_PROVIDER === "baseten" && process.env.BASETEN_API_KEY && typeof content === "string"
+    ? await askBasetenOpportunity(instruction, content, fetcher)
+    : await askMeta(instruction, content, 220, fetcher);
   if (result.error) return { status: 502, body: { error: result.error } };
   const parsed = opportunitySchema.safeParse(result.data);
   if (!parsed.success) return { status: 502, body: { error: "Meta returned an unreadable opportunity. Please try again." } };
+  if (parsed.data.alignedFactIds?.some((id) => !facts.some((fact) => fact.id === id)))
+    return { status: 502, body: { error: "Opportunity alignment contained an unknown career fact." } };
   return { status: 200, body: { opportunity: parsed.data } };
 }

@@ -1,5 +1,7 @@
 > Product direction (October 27): VantSide's core is resume-derived professional identity → repeatable adaptive foundational voice interviews → approved, persistent Career Memory → job-specific Opportunity Memory → round-specific Interview Memory and visual practice cues. Approved memory now persists locally in the desktop build; the current voice interview remains turn-based and its raw answers remain session-only. Synthetic cue tests are engineering fixtures, not the intended product.
 
+Opportunity text analysis can explicitly opt into Baseten-hosted Meta Muse Spark Open with `OPPORTUNITY_PROVIDER=baseten` and backend-only `BASETEN_API_KEY`. The default and missing-key path remains direct Meta. Baseten receives the pasted job description and at most 20 approved fact texts/IDs for relevance alignment; returned IDs are checked against the supplied facts. PDF opportunity analysis remains on the existing direct Meta multimodal route. A Baseten failure returns an error without a second paid provider request. The model identifier is `meta-models/muse-spark-open` at `https://inference.baseten.co/v1`; account access is not yet confirmed (the first minimal smoke returned HTTP 403).
+
 # VantSide Meta — Technical Architecture
 
 **Goal:** A new, publicly auditable, Meta-native prototype built during the hackathon. The target runtime is Tauri 2 on Windows x64, macOS Intel, and macOS Apple Silicon. Model and voice transport details remain candidates until verified with current official docs and live requests.

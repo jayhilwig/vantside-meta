@@ -26,6 +26,7 @@ export const opportunitySchema = z.object({
   company: z.string().trim().max(100),
   role: z.string().trim().max(100),
   confidence: z.enum(["clear", "uncertain"]),
+  alignedFactIds: z.array(z.string().min(1).max(80)).max(3).optional(),
 }).strict();
 
 export type MemoryProject = z.infer<typeof memoryProjectSchema>;
