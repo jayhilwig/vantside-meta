@@ -3,6 +3,7 @@ export async function askMeta(
   content: string | Array<{ type: "text"; text: string } | { type: "file"; file: { filename: string; file_data: string } }>,
   maxTokens: number,
   fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
 ) {
   const apiKey = process.env.MODEL_API_KEY;
   const baseUrl = process.env.META_API_BASE_URL;
@@ -16,7 +17,7 @@ export async function askMeta(
         response_format: { type: "json_object" }, store: false,
         messages: [{ role: "developer", content: instruction }, { role: "user", content }] }),
       cache: "no-store",
-      signal: AbortSignal.timeout(45_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000),
     });
     if (!response.ok) return { error: "Meta could not complete this request. Please try again." };
     const upstream = await response.json();

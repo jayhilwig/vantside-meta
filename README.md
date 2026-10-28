@@ -17,13 +17,13 @@ In the intended product, Career Memory carries forward between opportunities, wh
 
 ## What we're building for the hackathon
 
-A new Tauri 2 desktop experience using Meta models for resume understanding and evidence-grounded visual cues. The current static Next.js build has a four-step **text** flow: PDF fact proposals and approval, a short foundational text conversation, pasted or PDF job-description identification and confirmation, and personalized text-to-cue practice. The loopback-only Node backend keeps the Meta key server-side and handles extraction and cues, but personal PDF and packaged desktop calls still need live verification.
+A new Tauri 2 desktop experience using Meta models for resume understanding and evidence-grounded visual cues. The current static Next.js build has four steps: PDF fact proposals and approval; a resume-led foundational interview with microphone answers or a text fallback; pasted or PDF job-description identification and confirmation; and personalized text-to-cue practice. The loopback-only Node backend keeps the Meta key server-side. Personal PDF, microphone, and packaged desktop calls still need live verification.
 
-Voice transcription, profession inference, cross-restart Career Memory, multi-opportunity and round history, and company/interviewer research are **not implemented**. The current Career Memory and job context exist only during the active app session.
+Step 2 records one answer at a time and sends a short WAV clip to Meta Muse Voice Transcribe after **Finish answer**. The user can correct the transcript before Muse Spark selects a follow-up. Questions currently display as text; Meta Voice Transcribe does not generate speech. Cross-restart Career Memory, multi-opportunity and round history, and company/interviewer research are **not implemented**. Career Memory and job context exist only during the active app session.
 
 - **Platforms:** Windows x64 first; macOS Intel and Apple Silicon build targets.
-- **AI:** Muse Spark currently; Muse Voice Transcribe is planned.
-- **Experience:** Practice sessions only; no microphone capture is active yet and no covert interview assistance is offered.
+- **AI:** Muse Spark for questions and memory proposals; Muse Voice Transcribe for completed microphone answers.
+- **Experience:** Practice sessions only, with explicit microphone controls and no covert interview assistance.
 - **Future direction:** Open-source, provider-independent BYOK (bring your own key).
 
 ## Run locally
@@ -42,6 +42,8 @@ npm run tauri -- dev
 ```
 
 Never commit `.env.local`. The current backend is local to your machine; it is **not** a secured public API service. A public deployment needs real authentication, durable request quotas, and a spending cap.
+
+To test on Windows: approve a resume PDF, open **Let's Talk**, acknowledge the practice and consent statement, start the interview, record one answer, select **Finish answer**, review the transcript, then continue. Use **Pause** to discard a recording or **Stop interview** to end capture and cancel pending interview requests. No audio or transcript is saved to disk.
 
 ## Project documentation
 

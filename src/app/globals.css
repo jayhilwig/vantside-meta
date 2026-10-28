@@ -140,6 +140,15 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .text-button { padding: 4px 0; border: 0; background: none; color: #087c42; cursor: pointer; font-size: 11px; font-weight: 700; }
 .step-error { padding: 11px 13px; border-left: 3px solid #b54e3f; background: #fff5f2; color: #7d3026; }
 .review-list, .memory-editor, .opportunity-review { max-width: 760px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.profile-review { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; margin-bottom: 22px; }
+.profile-review .field-label:last-child { grid-column: 1 / -1; }
+.interview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
+.interview-state { padding: 7px 10px; border: 1px solid var(--border); border-radius: 999px; color: #666660; font-size: 10px; font-weight: 700; }
+.interview-state.listening { border-color: #c34337; background: #fff2f0; color: #9b2d22; }
+.interview-state.processing, .interview-state.permission { border-color: #d3b26d; background: #fff9e9; color: #76591e; }
+.interview-state.paused, .interview-state.stopped, .interview-state.error { background: #f3f3f0; }
+.consent-check { display: flex; align-items: flex-start; gap: 9px; max-width: 680px; margin: 13px 0; color: #5f5f59; font-size: 11px; line-height: 1.5; }
+.consent-check input { margin-top: 2px; accent-color: var(--action); }
 .review-list h3, .memory-editor h3 { margin: 0 0 16px; font-size: 15px; }
 .review-project { display: grid; gap: 12px; padding: 16px 0; border-top: 1px solid #ededE9; }
 .review-project > label, .review-fact label, .field-label { display: grid; gap: 7px; color: #5e5e59; font-size: 11px; font-weight: 700; }
@@ -166,6 +175,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
   .steps-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .step-card { min-height: 145px; padding: 16px; }
   .step-detail { padding: 20px; }
+  .profile-review { grid-template-columns: 1fr; }
   .page-wrap { width: min(100% - 36px, 560px); }
   .topbar { height: 72px; }
   .brand-lockup { gap: 7px; font-size: 14px; }

@@ -2,7 +2,7 @@
 
 VantSide is an evidence-grounded career-memory and interview-practice application. It helps a person recall their own experience during a consensual practice conversation. It is not a covert interview-answering tool or a way to complete an assessment for someone.
 
-These are product requirements. Milestone 1 currently offers a text-only demo with synthetic examples and validates cue source IDs; it does not yet implement session classification, microphone controls, or every enforcement layer below.
+These are product requirements. The current build offers explicit practice consent and microphone controls for a turn-based foundational interview, source-linked fact proposals requiring approval, and validated cue source IDs. It does not yet implement reliable session classification or every enforcement layer below; the Windows microphone path still needs manual verification.
 
 ## Practice sessions and consent
 

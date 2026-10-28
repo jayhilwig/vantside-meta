@@ -12,7 +12,15 @@ export const memoryProjectSchema = z.object({
   facts: z.array(memoryFactSchema).min(1).max(12),
 }).strict();
 
-export const resumeProposalSchema = z.object({ projects: z.array(memoryProjectSchema).max(8) }).strict();
+export const careerProfileSchema = z.object({
+  profession: z.string().trim().min(2).max(100),
+  seniority: z.string().trim().min(2).max(100),
+  careerSummary: z.string().trim().min(10).max(500),
+}).strict();
+export const resumeInterviewProposalSchema = z.object({
+  profile: careerProfileSchema,
+  projects: z.array(memoryProjectSchema).min(1).max(8),
+}).strict();
 export const opportunitySchema = z.object({
   company: z.string().trim().max(100),
   role: z.string().trim().max(100),
@@ -20,4 +28,5 @@ export const opportunitySchema = z.object({
 }).strict();
 
 export type MemoryProject = z.infer<typeof memoryProjectSchema>;
+export type CareerProfile = z.infer<typeof careerProfileSchema>;
 export type Opportunity = z.infer<typeof opportunitySchema>;

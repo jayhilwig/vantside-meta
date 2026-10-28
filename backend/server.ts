@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
 import { createCue } from "./cue-handler";
 import { extractOpportunity, extractResume } from "./extraction-handler";
+import { startInterview, continueInterview } from "./interview-handler";
+import { transcribeAnswer } from "./transcribe-handler";
 
 const host = "127.0.0.1";
 const port = Number(process.env.CUE_API_PORT ?? 8787);
@@ -13,7 +15,7 @@ const allowedOrigins = new Set([
   "tauri://localhost",
 ]);
 const maxBodyBytes = 5_500_000;
-const maxPerMinute = 10;
+const maxPerMinute = 30;
 const maxPerDay = 100;
 const recentRequests: number[] = [];
 let day = new Date().toISOString().slice(0, 10);
@@ -37,7 +39,7 @@ const server = createServer(async (request, response) => {
     send(response, 403, { error: "This practice API only accepts the local VantSide app." });
     return;
   }
-  const routes = new Set(["/cue", "/extract-resume", "/extract-opportunity"]);
+  const routes = new Set(["/cue", "/extract-resume", "/extract-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe"]);
   if (request.method === "OPTIONS" && routes.has(request.url ?? "")) {
     response.writeHead(204);
     response.end();
@@ -80,13 +82,18 @@ const server = createServer(async (request, response) => {
   recentRequests.push(now);
   dailyCount++;
   inFlight++;
+  const controller = new AbortController();
+  response.on("close", () => { if (!response.writableEnded) controller.abort(); });
   try {
     const result = request.url === "/extract-resume" ? await extractResume(body)
       : request.url === "/extract-opportunity" ? await extractOpportunity(body)
+      : request.url === "/interview/start" ? await startInterview(body, fetch, controller.signal)
+      : request.url === "/interview/turn" ? await continueInterview(body, fetch, controller.signal)
+      : request.url === "/interview/transcribe" ? await transcribeAnswer(body, fetch, controller.signal)
       : await createCue(body);
-    send(response, result.status, result.body);
+    if (!controller.signal.aborted) send(response, result.status, result.body);
   } catch {
-    send(response, 502, { error: "Cue generation failed. Please try again." });
+    if (!controller.signal.aborted) send(response, 502, { error: "Practice request failed. Please try again." });
   } finally {
     inFlight--;
   }

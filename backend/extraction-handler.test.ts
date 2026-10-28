@@ -13,7 +13,7 @@ test("resume PDF proposals, opportunity confirmation data, and personal cues sta
     const resumeFetcher: typeof fetch = async (_input, init) => {
       const payload = JSON.parse(String(init?.body));
       assert.equal(payload.messages[1].content[1].file.file_data.startsWith("data:application/pdf;base64,"), true);
-      return Response.json({ choices: [{ message: { content: JSON.stringify({ projects: [{ projectId: "launch", title: "Launch", facts: [{ id: "launch-fact", text: "Led launch research", source: "Led launch research" }] }] }) } }] });
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ profile: { profession: "Product designer", seniority: "Senior", careerSummary: "Product designer with launch research experience." }, projects: [{ projectId: "launch", title: "Launch", facts: [{ id: "launch-fact", text: "Led launch research", source: "Led launch research" }] }] }) } }] });
     };
     const resume = await extractResume({ filename: "resume.pdf", data: pdf }, resumeFetcher);
     assert.equal(resume.status, 200);

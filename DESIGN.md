@@ -23,7 +23,7 @@ Rebuild the animation **from scratch** using CSS/SVG/Canvas as appropriate, with
 ## 3. Main app layout and progression
 - Preserve Manrope Variable, the current brand styling, and the animated opener. After the opener, use one roomy main screen rather than a conventional multi-page wizard.
 - Top-left logo/wordmark; settings discreetly top-right. Use extremely little explanatory text: the four step names, a brief status, and one clear next action should carry the flow.
-- Show four large numbered steps in order: **1 Your Resume**, **2 Let's Talk**, **3 The Opportunity**, **4 Your Interview**. The current interface still labels Step 4 “Practice”; rename it in a separate UI change. The number and name establish hierarchy; do not replace them with a dense dashboard or long instructions.
+- Show four large numbered steps in order: **1 Your Resume**, **2 Let's Talk**, **3 The Opportunity**, **4 Your Interview**. The number and name establish hierarchy; do not replace them with a dense dashboard or long instructions.
 - Show honest states: available, in progress, needs review, complete, or locked. Unlock after meaningful completion, not mere upload, elapsed interview time, or a decorative checkmark. Identify exactly what needs attention when a step is blocked.
 - Users can reopen earlier steps to correct or enrich their information. Updates to Career Memory or opportunity context should be visible before the next practice session; do not force a restart of the journey.
 - Keep the primary action clear and green, with disabled and busy states. A synthetic demo must be labeled separately from personalized interview practice. Do not show paywalls, billing controls, or unsupported actions as operational in the hackathon MVP.
@@ -34,7 +34,7 @@ Rebuild the animation **from scratch** using CSS/SVG/Canvas as appropriate, with
 Thin dark border and rounded corners. Large green sequential numerals (1, 2, 3, 4) lead each step. Keep card copy to a short status and action; reveal source detail and editing controls only when the user opens a step. A locked card stays legible and explains its one missing prerequisite without pretending to work.
 
 ### Resume, conversation, and opportunity detail
-The current build accepts a resume PDF and distinguishes extracting, needs review, and approved facts. Let's Talk currently uses text and session-only Career Memory; voice controls are future work. The Opportunity step accepts pasted text or PDF and asks the user to confirm the company and role. Optional sourced company/interviewer research is future work and cannot block practice.
+The current build accepts a resume PDF and distinguishes extracting, needs review, and approved facts. Let's Talk shows the resume-led question, explicit practice consent, microphone permission, recording, processing, transcript review, pause, stop, text fallback, and pending Career Memory proposals. Voice answers are completed one at a time; questions display as text. The Opportunity step accepts pasted text or PDF and asks the user to confirm the company and role. Optional sourced company/interviewer research is future work and cannot block practice.
 
 ### Career Memory review dialog
 White modal over a dimmed background. Large readable heading, understated source and theme labels, fact statements in comfortable paragraph line height. Supporting evidence expandable. Close button in a dedicated footer. Do not make this modal the central demo feature.

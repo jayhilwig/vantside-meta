@@ -22,7 +22,7 @@ The intended product is not a resume chatbot, answer generator, job screener, or
 
 ### 1. Your Resume
 
-The target accepts PDF or Word resumes and proposes source-linked work history, professional identity, skills, projects and context. The user reviews and corrects facts before approval; upload alone does not complete the step. Profession inference should avoid a separate profession form unless the source is ambiguous. The current build accepts **PDF only** and proposes source-linked projects and facts; profession and seniority inference are not implemented.
+The target accepts PDF or Word resumes and proposes source-linked work history, professional identity, skills, projects and context. The user reviews and corrects facts before approval; upload alone does not complete the step. Profession inference should avoid a separate profession form unless the source is ambiguous. The current build accepts **PDF only** and proposes source-linked projects, facts, profession, seniority, and a career overview for review; this inference still needs live verification.
 
 ### 2. Let's Talk
 
@@ -40,7 +40,7 @@ Confirmed interviewers must come from the user or reliable evidence; suggested e
 
 Practice for a specific interview round. Voice interaction uses the professional history, approved memories, job requirements, and prior-round summaries to present compact, relevant visual cues. Capture new information during practice and propose memory updates.
 
-In the intended product, user-approved reusable career facts persist globally after each round; company or round-specific context stays with that opportunity. If the job doesn't work out, the professional memory remains useful for the next one. The current build offers personalized text practice after one approved memory and a confirmed opportunity; its Step 4 card still says “Practice,” and it does not persist rounds or facts across launches.
+In the intended product, user-approved reusable career facts persist globally after each round; company or round-specific context stays with that opportunity. If the job doesn't work out, the professional memory remains useful for the next one. The current build offers personalized text practice after one approved memory and a confirmed opportunity; it does not persist rounds or facts across launches.
 
 ## Memory model
 
@@ -53,7 +53,7 @@ Do not automatically convert unreviewed conversation content into established ca
 
 ## Hackathon versus future product
 
-**Current technical groundwork:** New desktop shell, loopback-only Meta backend, four-step session text flow, reviewed PDF fact proposals, confirmed opportunity context, personalized cues, and a separately labeled synthetic test mode. Static build and mocked contracts pass; personal PDF and packaged desktop Meta calls still need live verification. No raw audio is captured or persisted.
+**Current technical groundwork:** New desktop shell, loopback-only Meta backend, four-step session flow, reviewed PDF fact proposals and professional profile, resume-led Muse Spark questions and follow-ups, turn-based Muse Voice Transcribe microphone answers with text fallback, pending fact review, confirmed opportunity context, personalized cues, and a separately labeled synthetic test mode. Static build and mocked contracts pass; real microphone and packaged desktop Meta calls still need manual verification. Raw audio is discarded after each answer and never saved to disk.
 
 **Hackathon priority:** Resume ingestion, profession-aware foundational voice interview, a small approved and reusable Career Memory, one opportunity, and a working voice-to-visual-cue practice experience. Build one convincing end-to-end flow before secondary screens.
 
