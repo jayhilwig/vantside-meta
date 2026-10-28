@@ -21,6 +21,17 @@ Rebuild the animation **from scratch** using CSS/SVG/Canvas as appropriate, with
 - Maintain good proportions at desktop sizes and graceful clipping on smaller screens.
 
 ## 3. Main app layout
+
+The primary screen has four large numbered cards with progressive unlock states—not a wizard or a text-heavy dashboard:
+
+1. **Your Resume** — add a PDF or Word resume; show what VantSide recognized.
+2. **Let's Talk** — resume-aware foundational voice interview; continue or return to deepen Career Memory.
+3. **The Opportunity** — add a job description and role context; support targeted follow-up conversations.
+4. **Your Interview** — practice for an interview round with succinct grounded visual cues.
+
+Each step is revisitable. Keep copy exceptionally short, one clear action per card, and honest completion states. Do not make users classify their profession manually unless the resume is ambiguous. The opener and existing visual identity remain intact.
+
+
 - Top-left logo/wordmark; settings discreetly top-right.
 - Large headline with one emphatic weight shift; short setup explanation.
 - Compact preparation area for career material and approved facts.
