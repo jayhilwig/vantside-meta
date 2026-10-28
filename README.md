@@ -26,6 +26,14 @@ Voice transcription, profession inference, cross-restart Career Memory, multi-op
 - **Experience:** Practice sessions only; no microphone capture is active yet and no covert interview assistance is offered.
 - **Future direction:** Open-source, provider-independent BYOK (bring your own key).
 
+## Responsible use
+
+VantSide is for interview preparation and practice—not cheating. It helps people recall and explain their own verified professional experience. It does not secretly assist during real employer interviews, answer coding challenges or legal or medical competency assessments, or complete evaluations on anyone's behalf.
+
+Microphone capture requires explicit consent and visible controls when voice is implemented. Career facts must be grounded in user-approved information. These boundaries apply to the activity, not the profession: engineers, legal professionals, and healthcare workers can all use VantSide for legitimate practice.
+
+See [GUARDRAILS.md](GUARDRAILS.md) for the full responsible-use requirements.
+
 ## Run locally
 
 Requires Node.js 20.9 or newer and the Tauri 2 toolchain for desktop development. Copy `.env.example` to `.env.local` and configure the Meta variables first. Keep `NEXT_PUBLIC_CUE_API_BASE_URL` on loopback; it is a public build-time address, not a credential. The backend binds to `127.0.0.1:8787` by default.
