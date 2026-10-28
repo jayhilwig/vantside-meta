@@ -20,6 +20,12 @@ You are building an original, standalone October 26–November 4, 2026 Meta hack
 - Do not edit any file outside the VantSide Meta workspace without explicit permission.
 - On each meaningful completion, report: files changed, behavior verified, known gaps, and next smallest step.
 
+## Product source of truth
+
+The product is a living professional memory, not the synthetic text-to-cue development harness. Read PRODUCT.md first when prioritizing. Begin with resume import and inferred professional identity, then adaptive Meta voice interviews and approved Career Memory. Opportunity and round context are distinct layers. The user can return to grow memory over multiple sessions. Clearly label unfinished features, but keep development fixtures out of the primary product story and README.
+
+When a milestone is complete, make a descriptive local commit without rewriting history; leave hands-on UI/voice QA to the product owner. Do not push unless requested.
+
 ## Implementation order
 1. Bootstrap fresh app, styling, README and `.gitignore`.
 2. Re-create signature opener and a simple live-session shell.
