@@ -1,87 +1,69 @@
-# VantSide Meta — Product Specification
+# VantSide Meta — Product
 
-**Version:** Hackathon scope, October 26, 2026  
-**Theme:** Build for Your World  
-**Track:** Indie Developer  
-**Status:** Milestone 1 code is in place: text-simulated practice questions, synthetic example matching, and a server-side Muse Spark cue route. A full route smoke test remains pending. Voice, personal-material import, and the Tauri desktop shell remain unimplemented.
+## The idea
 
-## 1. Problem and proposition
-During stressful conversations people struggle to recall specific examples and metrics from their own experience. Traditional interview-preparation tools generate scripts or generic chat responses. VantSide Meta instead presents *small, timely visual memory cues*, grounded in the user's own documented work, during an explicitly consensual practice interview.
+**Your experience. Ready when you need it.**
 
-**Product promise:** Your own experience, surfaced at the moment it's useful.
+VantSide is a living professional memory. It learns from a resume and natural conversations, develops a source-grounded understanding of someone's work, and brings the right experiences forward for specific opportunities and interview rounds.
 
-## 2. Target user and demo scenario
-Primary user: an experienced professional practicing interviews about complex past work. First demo user: a product designer discussing research, product decisions, workflows, and measurable outcomes. The design should generalize to other professions without building industry-specific features during the event.
+The intended product is not a resume chatbot, answer generator, job screener, or one-time interview-prep exercise.
 
-Do not build applicant screening, personality scoring, covert interview assistance, or claims about hiring outcomes.
+## Design principles
 
-## 3. Primary journey
-1. **Prepare (Milestone 1):** Start with a small, clearly labeled set of synthetic project examples.
-2. **Practice (Milestone 1):** Type or select a simulated interviewer question. No microphone is used.
-3. **See cues (Milestone 1):** A server-side Muse Spark request matches the question to approved synthetic facts. The validated visual card shows a project, up to three short cue phrases, and expandable source notes. No unsupported outcome or metric is introduced.
-4. **Later:** Import and review personal materials, use explicit microphone permission and Meta Voice Transcribe, then connect final transcript turns to the same cue flow.
+- **Almost no instructions.** One screen, four numbered steps, one obvious action per step.
+- **Progressive unlocking.** Later steps become available once the relevant information exists, without arbitrary conversation-length requirements.
+- **Conversation before forms.** The resume tells VantSide where to begin; voice interviews uncover what a person actually did.
+- **Memory that grows.** Return for another conversation, add evidence, correct facts, and build on past sessions.
+- **Always grounded.** The user approves proposed facts. Don't invent credentials, achievements, or metrics.
+- **Practice only during the hackathon.** No covert real-interview assistance.
 
-## 4. MVP priorities
-### P0 — Must work for the three-minute demo
-- New app with usable desktop-first responsive UI and opening animation. **Done in Milestone 1.**
-- A clearly labeled synthetic demo profile. **Done in Milestone 1.**
-- Server-side Muse Spark call with schema validation. **Implemented in Milestone 1; live route smoke test pending.**
-- Text input to exercise questions and follow-ups before voice integration. **Done in Milestone 1.**
-- Meta Muse Voice Transcribe streaming speech-to-text with clear microphone permissions and transcript state. Validate service/browser integration first.
-- Event-driven cue updates when a new interview question or significant follow-up is detected.
-- UI states: idle, microphone permission, listening, thinking, cue ready, error, stopped.
-- Source-backed cues; avoid invented metrics and fabricated professional achievements.
+## The four steps
 
-### P1 — If P0 is stable
-- PDF/image ingestion with Muse Spark multimodal extraction, confirmation and evidence mapping.
-- Cue history and transcript review.
-- Reliable device-selection and audio-input testing.
+### 1. Your Resume
 
-### P2 — Only with time left
-- Second-person speaker differentiation, supplemental document formats, Baseten latency benchmarking, more elaborate animations.
+Upload a PDF or Word resume. VantSide extracts work history, professional role and likely seniority, skills, projects and context. It infers profession from the resume rather than requiring a separate profession form. Ask for confirmation only when essential details are ambiguous. The user can correct extracted information.
 
-## 5. Explicit exclusions
-See [GUARDRAILS.md](GUARDRAILS.md) for the practice-only boundary, evidence requirements, restricted evaluations, consent, retention, and conservative fallback behavior.
+### 2. Let's Talk
 
-- Live hidden assistance in actual employer interviews; sessions are designated mock/practice.
-- Employer candidate screening, applicant ranking, or personality inference.
-- A generic resume chatbot, dashboard-first workflow, or simple RAG/search demo.
-- Automatic content generation that impersonates professional experiences.
-- Full account management, payments, team collaboration, browser extensions, deep recruiting integrations, complex job tracking.
+A Meta-powered, spoken foundational interview based on that specific resume and profession—not a job description yet. For a product designer, ask about design decisions, collaboration, projects and outcomes; for another profession, ask appropriate questions about actual work. Follow answers with thoughtful, adaptive prompts.
 
-## 6. Product behaviors
-- Quiet by default. Cards animate subtly into place and never obstruct the entire conversation.
-- No stale answers masquerading as current: show timestamp/status and preserve previous card while a new one is being prepared.
-- If the model cannot identify a trustworthy match, say 'No verified memory match' instead of guessing.
-- User can correct memory entries; generated content cannot silently overwrite approved facts.
-- No automatic audio storage. Retention, if enabled, is explicit and explained.
-- Keyboard accessible controls and reduced-motion accommodation.
+Sessions may be brief or extended and can be resumed or repeated. The result is an evolving **Career Memory**, not merely a saved transcript. Extract proposed experiences, decisions, facts, outcomes and supporting source references for user approval. Allow the user to review, revise and remove them.
 
-## 7. Testable acceptance criteria
-1. A fresh Tauri desktop session can launch the practice workflow with explicit microphone permissions; the current browser/text demo is an interim step.
-2. At least three different spoken questions elicit distinct, relevant cues using actual Meta inference.
-3. A follow-up changes or refines the existing card without flooding the UI with text.
-4. Every factual cue is traceable to a memory item and no unsupported numerical outcome is invented.
-5. An outage or API error produces a recoverable message; session termination stops audio capture.
-6. The public repo can be opened anonymously and contains no proprietary legacy VantSide source or credentials.
-7. Three-minute video shows *new hackathon code and features only* and opens with the pre-existing-versus-new disclosure.
+### 3. The Opportunity
 
-## 8. Demo story (target 3 minutes)
-- 0:00–0:15 — Explain original concept versus completely fresh hackathon implementation.
-- 0:15–0:50 — Show prepared career memory and one multimodal source; describe source validation.
-- 0:50–2:15 — Ask two or three spoken interview questions and show cue transitions; include a follow-up.
-- 2:15–2:45 — Show transcript, source linkage, and Meta model architecture.
-- 2:45–3:00 — Close with a clear product claim, not an overpromise.
+Add a job description as a document, URL or pasted text where supported. Identify and confirm the company and role. Use Career Memory to find relevant experience and ask targeted follow-up questions. Store the job description, round plan, and optional sourced company/interviewer context under a distinct opportunity.
 
-## 9. Success metric
-Primary: reliable spoken-question-to-relevant-visual-cue loop. Secondary: latency measured at p50/p95, source attribution accuracy, fraction of questions with appropriate cues, recoverability, and demo quality. No numerical performance target is asserted before empirical measurements.
+Confirmed interviewers must come from the user or reliable evidence; suggested employees are never presented as confirmed interviewers. Public company research is a later enhancement, not a prerequisite.
 
-## 10. Desktop and provider direction
+### 4. Your Interview
 
-- Target a Tauri 2 desktop application for Windows x64, macOS Intel, and macOS Apple Silicon. Keep the current Next.js/React visual language and newly authored opening animation.
-- For the hackathon, use Meta models exclusively. The shared Meta key stays on a hosted backend; it must not ship in the Tauri binary, static frontend, or GitHub Actions artifacts.
-- The long-term open-source edition will support BYOK and provider choice (Meta, OpenAI, and compatible services). Keep transcription, reasoning, and vision behind separate provider contracts so the practice UI is not tied to a vendor. No additional provider is part of the hackathon scope.
-- Later BYOK credentials belong in secure local storage reached through the Tauri native boundary, not browser storage or a bundled configuration file. A user-supplied key is distinct from the hackathon's shared server key.
-- Before November 4, prioritize one reliable desktop spoken-question → Meta transcription → Meta reasoning → grounded cue demonstration. Windows x64 is the first runtime target; macOS Intel and Apple Silicon build artifacts and device permission checks follow. A CI build alone does not establish working microphone or window behavior on either Mac architecture.
-- Keep the compact cue within the practice window for the initial desktop demo. A separate floating, always-on-top window is a later enhancement after focus, accessibility, and cross-platform behavior are tested.
-- If voice or a platform build remains unverified at submission time, describe the text demo and available artifacts accurately; do not present them as a completed spoken or cross-platform experience.
+Practice for a specific interview round. Voice interaction uses the professional history, approved memories, job requirements, and prior-round summaries to present compact, relevant visual cues. Capture new information during practice and propose memory updates.
+
+After each round, retain user-approved, reusable career facts globally; keep company or round-specific context attached to that opportunity. If the job doesn't work out, the professional memory remains useful for the next one.
+
+## Memory model
+
+- **Career Memory (global):** Approved projects, roles, accomplishments, decisions, skills, stories and supporting sources; reusable across opportunities.
+- **Opportunity Memory:** Job description, company/role, role-specific preparations, relevant people, requirements and context.
+- **Interview Memory:** Individual sessions and rounds, questions, feedback, contextual cues and optional summaries.
+- **Memory proposals:** Model-extracted information is pending until the user accepts or edits it. Preserve provenance and distinguish facts from inference.
+
+Do not automatically convert unreviewed conversation content into established career facts. Prefer structured records over treating one enormous transcript as the corpus. For repeat sessions, summaries and memory updates require clear retention controls and user approval.
+
+## Hackathon versus future product
+
+**Current technical groundwork:** New desktop shell, local cue backend, a working Meta inference path and development-only text/sample experiments. These are not the finished product.
+
+**Hackathon priority:** Resume ingestion, profession-aware foundational voice interview, a small approved and reusable Career Memory, one opportunity, and a working voice-to-visual-cue practice experience. Build one convincing end-to-end flow before secondary screens.
+
+**Later:** Durable account sync (Supabase is a candidate), multiple long-running opportunities, sourced company/interviewer research, repeat interview rounds, polished three-platform releases, provider choice/BYOK, and hosted plans.
+
+Don't show unavailable actions as finished, and don't describe development fixtures as a product feature.
+
+## Privacy, consent and boundaries
+
+Explicit microphone permission; visible listening and stop states; practice sessions only; no default permanent raw-audio retention. Show users what would be saved and let them review, edit or delete it. Do not use the system to answer restricted coding, legal, clinical or other assessments. See [GUARDRAILS.md](GUARDRAILS.md).
+
+## Demo success
+
+A user adds a resume, VantSide recognizes the profession, conducts an adaptive spoken conversation, proposes an accurate career memory item, and uses approved knowledge to show a contextual visual cue in job-specific practice. The demonstration must be honest about what was implemented during the hackathon.
