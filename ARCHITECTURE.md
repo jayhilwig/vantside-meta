@@ -1,3 +1,5 @@
+> Product direction (October 27): VantSide's core is resume-derived professional identity → repeatable adaptive foundational voice interviews → approved, persistent Career Memory → job-specific Opportunity Memory → round-specific Interview Memory and visual practice cues. Earlier synthetic cue tests are engineering fixtures, not the intended product. The implementation plan below documents historical milestones and may lag local unpushed commits.
+
 # VantSide Meta — Technical Architecture
 
 **Goal:** A new, publicly auditable, Meta-native prototype built during the hackathon. The target runtime is Tauri 2 on Windows x64, macOS Intel, and macOS Apple Silicon. Model and voice transport details remain candidates until verified with current official docs and live requests.
@@ -18,7 +20,18 @@ Official references (verify updated SDK shapes and model availability at impleme
 - https://dev.meta.ai/models/muse-voice-transcribe
 - https://github.com/meta-models/meta-model-cookbook
 
-## 2. Logical data flow
+## 2. Memory domains and lifecycle
+
+- **Career Memory:** global, structured, approved professional facts, projects, decisions and outcomes, with source provenance, correction and deletion controls.
+- **Opportunity Memory:** job description, confirmed company/role, role-specific context, optional sourced people and preparation questions. Keep company-specific material separate from global facts.
+- **Interview Memory:** individual practice sessions and rounds, transient transcript context, optional user-reviewed summaries and proposed updates to Career Memory.
+- **Promotion:** speech/document extraction proposes facts; it does not silently promote them. Approval and provenance are required before reuse in grounded visual cues.
+- **Resume-first identity:** infer profession and seniority from resume PDF/Word, ask only necessary clarifications, then generate profession-specific foundational interview questions independent of a job listing.
+- **Adaptive voice:** after each answer, select a meaningful follow-up; support stopping, returning, and progressively deepening Career Memory.
+- **Durability:** current session-only storage is insufficient for the intended product. Evaluate secure local persistence for the hackathon and Supabase for future cross-device sync. Never persist raw audio by default; give users review/edit/delete controls and explicit consent for saved summaries.
+- **API security:** current loopback-only backend must not be made public with a shared key. Production hosting requires authentication, durable quotas and spending protections.
+
+## 3. Logical data flow
 ```text
 User-supplied resume / portfolio materials
    -> secure temporary parsing / multimodal extraction (Muse Spark)
