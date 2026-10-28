@@ -4,7 +4,7 @@
 
 ## 1. Stack and boundaries
 - UI: React / Next.js / TypeScript / Tailwind CSS; preserve the current practice view and opener inside a Tauri 2 desktop shell.
-- Current prototype server: `backend/server.ts` exposes `POST /cue` on `127.0.0.1` only. It retains the original Muse Spark request and source-validation behavior in `backend/cue-handler.ts`. The static frontend calls a build-time configured loopback URL.
+- Current prototype server: `backend/server.ts` exposes `POST /cue`, `POST /extract-resume`, and `POST /extract-opportunity` on `127.0.0.1` only. The static frontend calls a build-time configured loopback URL. PDF bytes are sent inline to Muse Spark for one-off extraction; no Files API upload or backend persistence is used.
 - Hosted hackathon backend target: a separate HTTPS service with real user/session authentication, durable quotas, and a spending cap. The current loopback service must not be publicly deployed. The shared Meta key remains on the server, never in static assets, the Tauri binary, CI artifacts, or client-side environment variables.
 - Primary inference: Meta Model API, Muse Spark 1.3 for textual/multimodal interpretation and structured cue construction.
 - Voice: Muse Voice Transcribe 1.0, with streamed audio and session lifecycle handled according to the **official voice API protocol** (verify transport, authentication and sample rate before implementation).
@@ -27,7 +27,7 @@ Clearly labeled synthetic examples + simulated interviewer question
    -> validated Cue JSON (source IDs required)
    -> React visual cue card
 
-PLANNED FOUR-STEP PRODUCT PATH (not implemented)
+CURRENT FOUR-STEP TEXT PATH (desktop live Meta behavior not yet verified)
 1 Your Resume: PDF -> temporary Meta extraction -> proposed source-linked facts
    -> user review/correction -> approved Career Memory seed
 2 Let's Talk: explicit microphone start -> Meta transcription -> adaptive foundational questions
@@ -70,7 +70,7 @@ type VisualCue = {
 };
 ```
 Any metric displayed must be supported by an `approved` source fact. If match is `none`, return an empty project ID, empty source facts, and safe fallback UI.
-For the planned four-step flow, a resume upload or transcript produces *proposed* facts only; user approval creates eligible Career Memory. Opportunity context needs the job-description source, a user-confirmed company, and separate public-research items with source URL, retrieval time, and `verified` or `suggested` status. Never infer an interviewer identity from a name or role match alone. These are contracts to design before implementation, not current storage or endpoints.
+In the current four-step flow, a resume upload produces *proposed* facts only; user approval creates eligible session Career Memory. Text interview entries must quote a phrase from the user's session response. Opportunity context requires a user-confirmed company and role. Public-research items with source URL, retrieval time, and `verified` or `suggested` status remain future contracts. Never infer an interviewer identity from a name or role match alone.
 
 ## 4. Real-time orchestration
 - Prefer final transcript segments or high-confidence speech boundaries to avoid firing model calls on every word.
@@ -120,7 +120,7 @@ For the planned four-step flow, a resume upload or transcript produces *proposed
 - Zod validates the generated shape and enforces that cited fact IDs belong to the selected synthetic project. A no-match response cannot cite facts.
 - Upstream errors, malformed JSON, and schema failures return a generic user-facing message. Upstream response bodies and keys are not logged or relayed.
 - The opening ribbon and perspective dot field are newly authored SVG/CSS. Reduced-motion preference skips the timed intro and disables motion.
-- The current UI is a text simulation only. Voice capture, personal document import, persistence, and full live-session device controls remain future work.
+- The current UI is text-only but now includes inline PDF proposals, user approval, session Career Memory, opportunity confirmation, and personalized text cues. Voice capture, cross-restart persistence, and full live-session device controls remain future work.
 - Lint, TypeScript, and a Webpack production build passed in Milestone 1. The static desktop build and mocked cue contract have since passed; a packaged Windows runtime and live desktop-to-Meta request remain unverified.
 
 ## 9. Definition of done

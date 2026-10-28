@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { createCue } from "./cue-handler";
+import { extractOpportunity, extractResume } from "./extraction-handler";
 
 const host = "127.0.0.1";
 const port = Number(process.env.CUE_API_PORT ?? 8787);
@@ -11,7 +12,7 @@ const allowedOrigins = new Set([
   "https://tauri.localhost",
   "tauri://localhost",
 ]);
-const maxBodyBytes = 2048;
+const maxBodyBytes = 5_500_000;
 const maxPerMinute = 10;
 const maxPerDay = 100;
 const recentRequests: number[] = [];
@@ -36,12 +37,13 @@ const server = createServer(async (request, response) => {
     send(response, 403, { error: "This practice API only accepts the local VantSide app." });
     return;
   }
-  if (request.method === "OPTIONS" && request.url === "/cue") {
+  const routes = new Set(["/cue", "/extract-resume", "/extract-opportunity"]);
+  if (request.method === "OPTIONS" && routes.has(request.url ?? "")) {
     response.writeHead(204);
     response.end();
     return;
   }
-  if (request.method !== "POST" || request.url !== "/cue") {
+  if (request.method !== "POST" || !routes.has(request.url ?? "")) {
     send(response, 404, { error: "Not found." });
     return;
   }
@@ -64,7 +66,7 @@ const server = createServer(async (request, response) => {
     for await (const chunk of request) {
       size += chunk.length;
       if (size > maxBodyBytes) {
-        send(response, 413, { error: "Practice question is too long." });
+        send(response, 413, { error: "Request is too large." });
         return;
       }
       chunks.push(chunk);
@@ -79,7 +81,9 @@ const server = createServer(async (request, response) => {
   dailyCount++;
   inFlight++;
   try {
-    const result = await createCue(body);
+    const result = request.url === "/extract-resume" ? await extractResume(body)
+      : request.url === "/extract-opportunity" ? await extractOpportunity(body)
+      : await createCue(body);
     send(response, result.status, result.body);
   } catch {
     send(response, 502, { error: "Cue generation failed. Please try again." });
@@ -88,7 +92,7 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.requestTimeout = 35_000;
+server.requestTimeout = 55_000;
 server.listen(port, host, () => {
   console.log(`VantSide practice API listening on http://${host}:${port}`);
 });

@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { careerExamples } from "@/lib/career-examples";
 import type { VisualCue } from "@/lib/cue-schema";
+import type { MemoryProject } from "@/lib/session-schema";
 
 const suggestedQuestions = [
   "Tell me about a time you improved an onboarding experience.",
@@ -35,7 +36,7 @@ const openerDots = Array.from({ length: 19 }, (_, column) => {
   );
 }).flat();
 
-function BrandMark({ small = false }: { small?: boolean }) {
+export function BrandMark({ small = false }: { small?: boolean }) {
   return (
     <span aria-hidden="true" className={`brand-mark${small ? " brand-mark-small" : ""}`}>
       <svg viewBox="0 0 36 36" fill="none">
@@ -46,7 +47,7 @@ function BrandMark({ small = false }: { small?: boolean }) {
   );
 }
 
-function OpeningSequence({ onFinish, ready = true }: { onFinish: () => void; ready?: boolean }) {
+export function OpeningSequence({ onFinish, ready = true }: { onFinish: () => void; ready?: boolean }) {
   const [minimumElapsed, setMinimumElapsed] = useState(false);
 
   useEffect(() => {
@@ -96,8 +97,8 @@ function OpeningSequence({ onFinish, ready = true }: { onFinish: () => void; rea
   );
 }
 
-export function PracticeApp() {
-  const [introVisible, setIntroVisible] = useState(true);
+export function PracticeApp({ projects, opportunity, onBack }: { projects?: MemoryProject[]; opportunity?: { company: string; role: string }; onBack?: () => void }) {
+  const [introVisible, setIntroVisible] = useState(!onBack);
   const [question, setQuestion] = useState("");
   const [activeQuestion, setActiveQuestion] = useState("");
   const [cue, setCue] = useState<VisualCue | null>(null);
@@ -118,7 +119,7 @@ export function PracticeApp() {
       const response = await fetch(`${cueApiBaseUrl.replace(/\/$/, "")}/cue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: nextQuestion }),
+        body: JSON.stringify(projects && opportunity ? { question: nextQuestion, projects, opportunity } : { question: nextQuestion }),
       });
       const result: { cue?: VisualCue; error?: string } = await response.json();
       if (!response.ok || !result.cue) throw new Error(result.error ?? "Could not find a cue. Try again.");
@@ -132,7 +133,7 @@ export function PracticeApp() {
   }
 
   const activeExample = cue?.projectId
-    ? careerExamples.find((example) => example.projectId === cue.projectId)
+    ? (projects ?? careerExamples).find((example) => example.projectId === cue.projectId)
     : undefined;
 
   return (
@@ -141,19 +142,20 @@ export function PracticeApp() {
 
       <div className="page-wrap">
         <header className="topbar">
+          {onBack && <button className="text-button" type="button" onClick={onBack}>← Four steps</button>}
           <a className="brand-lockup" href="#top" aria-label="VantSide practice room home">
             <BrandMark small />
             <span>VantSide</span>
             <span className="brand-divider" />
             <span className="brand-subtitle">Meta practice</span>
           </a>
-          <div className="session-pill"><span className="session-dot" /> MOCK INTERVIEW</div>
+          <div className="session-pill"><span className="session-dot" /> {projects ? "PERSONALIZED PRACTICE" : "SYNTHETIC TEST MODE"}</div>
         </header>
 
         <section className="intro-copy" id="top">
           <p className="eyebrow">YOUR PRACTICE ROOM</p>
           <h1>Stay in the conversation.<br /><em>Find your next example.</em></h1>
-          <p className="intro-description">Try an interview question. VantSide will surface a concise cue from a small set of synthetic career examples.</p>
+          <p className="intro-description">{projects ? `Text practice for ${opportunity?.role} at ${opportunity?.company}. Cues use only your approved memory.` : "Try an interview question. VantSide will surface a concise cue from synthetic career examples."}</p>
         </section>
 
         <section className="workbench" aria-label="Practice interview demo">
@@ -188,7 +190,7 @@ export function PracticeApp() {
                 <button key={suggestion} onClick={() => setQuestion(suggestion)} type="button">{suggestion}</button>
               ))}
             </div>
-            <p className="privacy-note"><span aria-hidden="true">◌</span> Synthetic examples only. Don’t enter personal or confidential information.</p>
+            <p className="privacy-note"><span aria-hidden="true">◌</span> {projects ? "Text practice only. No microphone is active. Session data is not saved across restarts." : "Synthetic examples only. Don’t enter personal or confidential information."}</p>
           </div>
 
           <aside className="cue-panel" aria-live="polite" aria-busy={isLoading}>
@@ -212,11 +214,11 @@ export function PracticeApp() {
                 ) : <p className="no-match-copy">Try a different question to find a relevant example.</p>}
                 {activeExample && cue.sourceFactIds.length > 0 && (
                   <details className="evidence-details">
-                    <summary>View synthetic source notes <span>{cue.sourceFactIds.length}</span></summary>
+                    <summary>View {projects ? "approved" : "synthetic"} source notes <span>{cue.sourceFactIds.length}</span></summary>
                     <ul>{activeExample.facts.filter((fact) => cue.sourceFactIds.includes(fact.id)).map((fact) => <li key={fact.id}>{fact.text}</li>)}</ul>
                   </details>
                 )}
-                <div className="cue-card-footer"><span className="verified-dot" />{cue.match === "verified" ? "Grounded in synthetic examples" : "No verified memory match"}</div>
+                <div className="cue-card-footer"><span className="verified-dot" />{cue.match === "verified" ? `Grounded in ${projects ? "approved memory" : "synthetic examples"}` : "No verified memory match"}</div>
               </div>
             ) : (
               <div className="cue-empty">
@@ -228,20 +230,20 @@ export function PracticeApp() {
           </aside>
         </section>
 
-        <section className="memory-strip" aria-label="Synthetic demo memory">
-          <div className="memory-heading"><span className="eyebrow">DEMO MEMORY</span><span>SYNTHETIC EXAMPLES</span></div>
+        <section className="memory-strip" aria-label={projects ? "Approved career memory" : "Synthetic demo memory"}>
+          <div className="memory-heading"><span className="eyebrow">{projects ? "APPROVED MEMORY" : "DEMO MEMORY"}</span><span>{projects ? "SESSION ONLY" : "SYNTHETIC EXAMPLES"}</span></div>
           <div className="memory-list">
-            {careerExamples.map((example, index) => (
+            {(projects ?? careerExamples).map((example, index) => (
               <div className="memory-item" key={example.projectId}>
                 <span className="memory-index">0{index + 1}</span>
-                <div><h3>{example.title}</h3><p>{example.facts.length} source notes · fictional demo material</p></div>
+                <div><h3>{example.title}</h3><p>{example.facts.length} source notes · {projects ? "user approved" : "fictional demo material"}</p></div>
                 <span className="memory-arrow" aria-hidden="true">↗</span>
               </div>
             ))}
           </div>
         </section>
 
-        <footer className="page-footer"><span>VantSide Meta</span><span>Practice only · No audio is captured in this demo</span></footer>
+        <footer className="page-footer"><span>VantSide Meta</span><span>Practice only · No audio is captured</span></footer>
       </div>
     </main>
   );

@@ -2,15 +2,16 @@
 
 **A live visual memory interface for interview practice.**
 
-VantSide Meta is a new, standalone Indie Developer entry for the Meta Global AI Developer Hackathon, October 26–November 4, 2026. The Milestone 1 demo accepts simulated interviewer questions as text and surfaces compact cues from clearly labeled synthetic examples. Voice capture and personal career materials are not implemented yet.
+VantSide Meta is a new, standalone Indie Developer entry for the Meta Global AI Developer Hackathon, October 26–November 4, 2026. The current prototype has a session-only four-step text flow: PDF resume review, a short foundational conversation, opportunity confirmation, and grounded Practice. A separate synthetic cue demo remains available. Voice capture is not implemented yet.
 
 ## The experience
-1. Type or choose a simulated interviewer question.
-2. Muse Spark matches it to a small set of clearly labeled synthetic examples.
-3. Review a concise visual cue and expand its cited synthetic source notes.
+1. Upload a resume PDF, review Muse Spark's proposed facts, and approve them.
+2. Build Career Memory in a short text conversation, then save and continue.
+3. Paste or upload a job description and confirm the company and role.
+4. Practice with text questions and cues sourced from approved memory. A clearly labeled synthetic test mode is also available.
 
 ## The one thing the demo must prove
-An interview question causes a relevant, source-backed cue to appear, and a follow-up changes the cue appropriately. Milestone 1 exercises this loop with text input and synthetic examples; voice integration remains future work.
+An interview question causes a relevant, source-backed cue to appear. The four-step flow is implemented with text and in-memory session data; voice integration and cross-restart persistence remain future work. Personal document and cue paths require live Meta verification on the Windows desktop.
 
 ## Hackathon boundary
 - This is a **fresh implementation**, not a fork or repackaging of the pre-hackathon VantSide codebase.
@@ -29,7 +30,7 @@ An interview question causes a relevant, source-backed cue to appear, and a foll
 - [AGENTS.md](AGENTS.md) — instructions for Codex and other coding agents
 
 ## Stack
-Tauri 2 with a static-exported Next.js App Router frontend, React, TypeScript, Tailwind CSS, Zod, and the Meta Model API using Muse Spark 1.3. A separate loopback-only Node cue service reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` from the environment. The desktop bundle contains no Meta credentials. Voice transcription is not included yet.
+Tauri 2 with a static-exported Next.js App Router frontend, React, TypeScript, Tailwind CSS, Zod, and the Meta Model API using Muse Spark 1.3. A separate loopback-only Node service reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` from the environment. It handles one-off inline PDF extraction, opportunity identification, and cues. The desktop bundle contains no Meta credentials. Uploaded PDFs, transcripts, and Career Memory stay in active-session memory only. Voice transcription is not included yet.
 
 ## Local setup
 1. Use Node.js 20.9 or newer.

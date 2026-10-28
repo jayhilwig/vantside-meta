@@ -3,7 +3,7 @@
 **Version:** Hackathon scope, October 26, 2026  
 **Theme:** Build for Your World  
 **Track:** Indie Developer  
-**Status:** The text-only practice UI and synthetic cue flow are packaged for a Tauri 2 desktop shell. The Meta cue service runs separately on loopback for this prototype; Windows runtime and live desktop cue behavior still require manual verification. Voice and personal-material import remain unimplemented.
+**Status:** The four-step text flow and synthetic cue path are implemented in a Tauri-compatible static frontend with a separate loopback Meta service. Personal PDF extraction and desktop live Meta behavior require manual verification. Voice and cross-restart persistence remain unimplemented.
 
 ## 1. Problem and proposition
 During stressful conversations people struggle to recall specific examples and metrics from their own experience. Traditional interview-preparation tools generate scripts or generic chat responses. VantSide Meta instead presents *small, timely visual memory cues*, grounded in the user's own documented work, during an explicitly consensual practice interview.
@@ -24,7 +24,7 @@ The product lives on one main screen with four large numbered steps. It is a pro
 3. **The Opportunity:** Upload or paste a job description and confirm the identified company. Public company research and known or potential interviewer research are optional enrichments, never gates to Practice. Show source and verification status; label uncertain company or interviewer matches as suggestions rather than facts.
 4. **Practice:** Run a job-specific mock interview using approved Career Memory and confirmed opportunity context. Surface live, compact visual reminders of existing experience, not scripts or answers to restricted assessments.
 
-Practice unlocks when there is a usable approved Career Memory and a confirmed opportunity. A clearly labeled synthetic demo can remain available separately before personalized steps are complete. The current implementation is only that text-driven synthetic demo; the four-step workflow is not yet functional.
+Practice unlocks when there is a usable approved Career Memory and a confirmed opportunity. A clearly labeled synthetic demo remains available separately before personalized steps are complete. The current four-step flow uses text for Let's Talk and Practice; it has not been verified with live desktop Meta calls.
 
 ## 4. Hackathon scope versus longer-term product
 ### Current prototype (implemented)
@@ -33,8 +33,9 @@ Practice unlocks when there is a usable approved Career Memory and a confirmed o
 - A clearly labeled synthetic demo profile. **Done in Milestone 1.**
 - Server-side Muse Spark call with schema validation. **Implemented in the separate loopback service; packaged desktop request remains to be manually verified.**
 - Text input to exercise questions and follow-ups before voice integration. **Done in Milestone 1.**
+- Four numbered steps with session-only PDF resume fact proposals and approval, short text conversation, job-description identification and confirmation, and personalized text Practice. **Implemented; live desktop Meta path still needs manual verification.**
 
-### Immediate hackathon MVP target (not yet implemented)
+### Immediate hackathon MVP target and remaining verification
 
 - Keep the four numbered steps visible on one main screen, with honest locked, ready, and completed states. The first functional path is a thin, verifiable pass through PDF review, a short foundational conversation, job-description/company confirmation, and Practice; do not claim a step works until its full path is tested.
 - Use Meta models to propose resume facts, then require user review before they enter Career Memory. Keep facts editable and traceable to user-provided evidence.

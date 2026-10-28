@@ -1,5 +1,5 @@
-import { PracticeApp } from "@/components/practice-app";
+import { JourneyApp } from "@/components/journey-app";
 
 export default function Home() {
-  return <PracticeApp />;
+  return <JourneyApp />;
 }
