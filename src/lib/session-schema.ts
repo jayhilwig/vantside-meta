@@ -9,6 +9,7 @@ export const memoryFactSchema = z.object({
 export const memoryProjectSchema = z.object({
   projectId: z.string().regex(/^[a-z0-9-]{1,40}$/),
   title: z.string().trim().min(2).max(100),
+  dates: z.string().trim().min(4).max(60).optional(),
   facts: z.array(memoryFactSchema).min(1).max(12),
 }).strict();
 

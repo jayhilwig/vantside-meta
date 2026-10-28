@@ -10,7 +10,7 @@ export const newMemoryId = (prefix: string) => `${prefix}-${crypto.randomUUID().
 export function approvedProjects(state: MemoryState): MemoryProject[] {
   const sources = new Map(state.career.sources.map((source) => [source.id, source.excerpt]));
   return state.career.projects.map((project) => ({
-    projectId: project.id, title: project.title,
+    projectId: project.id, title: project.title, dates: project.dates,
     facts: state.career.facts.filter((fact) => fact.projectId === project.id).map((fact) => ({
       id: fact.id, text: fact.text, source: sources.get(fact.sourceIds[0]) ?? "",
     })),
@@ -35,7 +35,7 @@ export function approveResumeReview(state: MemoryState, review: ResumeReview, fi
   for (const project of review.projects) {
     const keptFacts = project.facts.filter((fact) => fact.text.trim().length >= 5 && fact.source.trim().length >= 5);
     if (!keptFacts.length || project.title.trim().length < 2) continue;
-    projects.push({ id: project.projectId, title: project.title.trim() });
+    projects.push({ id: project.projectId, title: project.title.trim(), dates: project.dates });
     for (const fact of keptFacts) {
       const sourceId = newMemoryId("quote");
       sources.push({ id: sourceId, kind: "resume", originId: materialId,
@@ -104,6 +104,16 @@ export function removeCareerProject(state: MemoryState, projectId: string): Memo
     materials: state.career.materials.filter((material) => usedMaterials.has(material.id)),
     projects: state.career.projects.filter((project) => project.id !== projectId),
     facts,
+  } });
+}
+
+export function removeResume(state: MemoryState): MemoryState {
+  const withoutResume = state.career.materials.filter((material) => material.kind === "resume")
+    .reduce((current, material) => deleteMaterial(current, material.id), state);
+  const liveProjectIds = new Set(withoutResume.career.facts.map((fact) => fact.projectId));
+  return memoryStateSchema.parse({ ...withoutResume, career: { ...withoutResume.career,
+    identity: null,
+    projects: withoutResume.career.projects.filter((project) => liveProjectIds.has(project.id)),
   } });
 }
 

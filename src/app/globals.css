@@ -133,6 +133,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .detail-heading { margin-bottom: 22px; }
 .detail-heading h2 { margin: 10px 0 0; font-size: 27px; font-weight: 600; letter-spacing: -.05em; }
 .detail-note { max-width: 680px; color: #70706b; font-size: 11px; line-height: 1.6; }
+.resume-upload { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 15px; }
+.resume-upload .detail-note { margin: 0; overflow-wrap: anywhere; }
+.step-card:not(:disabled) .step-card-status { color: #087c42; }
+.saved-note { color: #087c42; font-size: 11px; font-weight: 700; }
+.optional-interviewers { margin-top: 24px; font-size: 11px; color: #62625d; }
+.optional-interviewers summary { cursor: pointer; }
+.practice-start { margin-top: 16px; }
 .file-button, .secondary-button { display: inline-flex; align-items: center; padding: 10px 13px; border: 1px solid var(--ink); border-radius: 4px; background: white; cursor: pointer; font-size: 12px; font-weight: 650; }
 .file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .file-button:focus-within { outline: 3px solid #167f4b; outline-offset: 3px; }
@@ -151,6 +158,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .consent-check input { margin-top: 2px; accent-color: var(--action); }
 .review-list h3, .memory-editor h3 { margin: 0 0 16px; font-size: 15px; }
 .review-project { display: grid; gap: 12px; padding: 16px 0; border-top: 1px solid #ededE9; }
+.project-dates { margin: -6px 0 0; color: var(--muted); font-size: 11px; }
 .review-project > label, .review-fact label, .field-label { display: grid; gap: 7px; color: #5e5e59; font-size: 11px; font-weight: 700; }
 .review-project input, .field-label input, .field-label textarea, .review-fact textarea { width: 100%; padding: 10px 12px; border: 1px solid #d9d9d4; border-radius: 4px; color: var(--ink); background: white; font-size: 12px; font-weight: 400; line-height: 1.5; }
 .review-fact { padding: 10px 12px; background: var(--soft); border-radius: 4px; }

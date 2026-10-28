@@ -147,7 +147,7 @@ export function PracticeApp({ projects, opportunity, onBack }: { projects?: Memo
             <BrandMark small />
             <span>VantSide</span>
             <span className="brand-divider" />
-            <span className="brand-subtitle">Meta practice</span>
+            <span className="brand-subtitle">Practice</span>
           </a>
           <div className="session-pill"><span className="session-dot" /> {projects ? "PERSONALIZED PRACTICE" : "SYNTHETIC TEST MODE"}</div>
         </header>
@@ -155,14 +155,14 @@ export function PracticeApp({ projects, opportunity, onBack }: { projects?: Memo
         <section className="intro-copy" id="top">
           <p className="eyebrow">YOUR PRACTICE ROOM</p>
           <h1>Stay in the conversation.<br /><em>Find your next example.</em></h1>
-          <p className="intro-description">{projects ? `Text practice for ${opportunity?.role} at ${opportunity?.company}. Cues use only your approved memory.` : "Try an interview question. VantSide will surface a concise cue from synthetic career examples."}</p>
+          <p className="intro-description">{projects ? `${opportunity?.role} · ${opportunity?.company}` : "Synthetic test mode"}</p>
         </section>
 
         <section className="workbench" aria-label="Practice interview demo">
           <div className="question-panel">
             <div className="panel-heading">
               <div><span className="step-number">01</span><span className="eyebrow">SIMULATED INTERVIEWER</span></div>
-              <span className="demo-label">TEXT DEMO</span>
+              <span className="demo-label">PRACTICE</span>
             </div>
             <h2>What would you like to practice?</h2>
             <form onSubmit={submitQuestion}>

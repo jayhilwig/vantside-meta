@@ -10,7 +10,7 @@ const manrope = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "VantSide Meta — Practice room",
+  title: "VantSide",
   description:
     "Practice interview questions and surface concise cues from synthetic career examples with Meta Muse Spark.",
 };

@@ -39,6 +39,7 @@ export const approvedCareerFactSchema = z.object({
 export const careerProjectSchema = z.object({
   id,
   title: z.string().trim().min(2).max(100),
+  dates: z.string().trim().min(4).max(60).optional(),
   organization: z.string().trim().min(2).max(100).optional(),
 }).strict();
 

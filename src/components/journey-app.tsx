@@ -7,7 +7,7 @@ import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-sc
 import { emptyMemoryState, type MemoryState } from "../../backend/career-memory";
 import { hasDesktopStorage, loadCareerMemory, saveCareerMemory } from "@/lib/career-memory-storage";
 import { approvedProjects, approveInterviewFact, approveManualInterviewFact, approveResumeReview,
-  confirmOpportunity, newMemoryId, pendingInterviewFacts, removeCareerProject, removeOpportunity,
+  confirmOpportunity, newMemoryId, pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume,
   retainPendingFact, saveInterviewSession, type PendingInterviewFact } from "@/lib/journey-memory";
 
 type Step = 1 | 2 | 3 | 4;
@@ -70,6 +70,7 @@ export function JourneyApp() {
   const generationRef = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [savedNotice, setSavedNotice] = useState(false);
   const hasMemory = approved.some((project) => project.title.trim() && project.facts.some((fact) => fact.text.trim() && fact.source.trim()));
   const canPractice = hasMemory && !!confirmedOpportunity;
   const prompt = interviewQuestion || "Start the interview to get a question based on your approved resume.";
@@ -254,11 +255,12 @@ export function JourneyApp() {
     if (!file.name.toLowerCase().endsWith(".pdf") || file.size > 4_000_000) { setError("Choose a PDF under 4 MB."); return; }
     void run(async () => {
       const data = await fileData(file);
+      const filename = file.name.length > 120 ? `${file.name.slice(0, 116)}.pdf` : file.name;
       if (kind === "resume") {
-        const result = await post<{ proposal: ResumeProposal }>("/extract-resume", { filename: file.name, data });
+        const result = await post<{ proposal: ResumeProposal }>("/extract-resume", { filename, data });
         setResumeName(file.name); setProposal(result.proposal); setResumeApproved(false);
       } else {
-        const result = await post<{ opportunity: Opportunity }>("/extract-opportunity", { filename: file.name, data });
+        const result = await post<{ opportunity: Opportunity }>("/extract-opportunity", { filename, data });
         setOpportunityDraft(result.opportunity); setOpportunityInput(""); setOpportunityPdfName(file.name); setConfirmedOpportunity(null);
       }
     });
@@ -298,7 +300,7 @@ export function JourneyApp() {
     activeSessionRef.current = sessionId;
     void run(async () => {
       const next = await commitMemory((state) => approveManualInterviewFact(state, projectTitle.trim(), projectFact.trim(), matched.answer, sessionId, new Date().toISOString()));
-      setApproved(approvedProjects(next)); setProjectTitle(""); setProjectFact("");
+      setApproved(approvedProjects(next)); setProjectTitle(""); setProjectFact(""); setSavedNotice(true);
     });
   }
 
@@ -312,7 +314,7 @@ export function JourneyApp() {
   return <main className="app-shell">
     {intro && <OpeningSequence onFinish={closeIntro} />}
     <div className="page-wrap">
-      <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span><span className="brand-divider"/><span className="brand-subtitle">Meta practice</span></div><span className="session-pill">PRACTICE ONLY</span></header>
+      <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span></div></header>
       <section className="journey-heading"><p className="eyebrow">YOUR PRACTICE ROOM</p><h1>Your story, ready when you are.</h1><p>Four steps. Your experience stays yours.</p></section>
       <nav className="steps-grid" aria-label="Four steps">
         {([1, 2, 3, 4] as Step[]).map((number) => {
@@ -322,7 +324,7 @@ export function JourneyApp() {
           const status = complete ? "Complete" : locked ? number === 2 ? "Approve your resume first" : number === 3 ? "Build Career Memory first" : "Add memory and opportunity first" : number === 1 && proposal ? "Review needed" : number === 4 ? "Ready" : "Available";
           return <button key={number} type="button" className={`step-card${step === number ? " active" : ""}`} disabled={locked}
             onClick={() => { if (step === 2 && number !== 2) pauseInterview(); setStep(number); }} aria-current={step === number ? "step" : undefined}>
-            <span className="step-card-number">0{number}</span><strong>{title}</strong><span className="step-card-status">{status}</span>
+            <span className="step-card-number">0{number}</span><strong>{title}</strong><span className="step-card-status">{complete ? `✓ ${status}` : status}</span>
           </button>;
         })}
       </nav>
@@ -330,20 +332,26 @@ export function JourneyApp() {
         {error && <p className="step-error" role="alert">{error}</p>}
         {step === 1 && <>
           <div className="detail-heading"><span className="eyebrow">01 / YOUR RESUME</span><h2>Start with what you’ve done.</h2></div>
-          <label className="file-button">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label>
-          <p className="detail-note">{busy ? "Extracting with Muse Spark…" : resumeName ? `${resumeName} · ${resumeApproved ? "Approved" : "Review before approval"}` : "PDF under 4 MB · sent to Meta for extraction · PDF bytes are not saved"}</p>
-          {proposal && <div className="review-list"><h3>Review proposed facts</h3>
+          <div className="resume-upload"><label className="file-button">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label><span className="detail-note">{busy ? "Reading…" : resumeName ? `${resumeName} · ${resumeApproved ? "✓ Approved" : "Review before approval"}` : "PDF under 4 MB"}</span></div>
+          {resumeApproved && <button type="button" className="text-button" onClick={() => {
+            if (!window.confirm("Remove this resume and facts supported only by it? Independently supported Career Memory will remain.")) return;
+            void run(async () => { const next = await commitMemory(removeResume); cancelActive(); activeSessionRef.current = null;
+              setApproved(approvedProjects(next)); setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null); setStep(1);
+            });
+          }}>Remove Resume</button>}
+          {proposal && <div className="review-list"><h3>Review Your Career</h3><h4>Career Summary</h4>
             <div className="profile-review"><label className="field-label">Profession<input value={proposal.profile.profession} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, profession: event.target.value } }); }}/></label>
             <label className="field-label">Seniority<input value={proposal.profile.seniority} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value } }); }}/></label>
             <label className="field-label">Career overview<textarea value={proposal.profile.careerSummary} maxLength={500} rows={2} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, careerSummary: event.target.value } }); }}/></label></div>
             {proposal.projects.map((project, pi) => <div className="review-project" key={project.projectId}>
             <label>Project<input value={project.title} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, title: event.target.value } : item) }); }}/></label>
-            {project.facts.map((fact, fi) => <div className="review-fact" key={fact.id}><label>Fact<textarea value={fact.text} maxLength={400} onChange={(event) => updateFact(pi, fi, event.target.value)} rows={2}/></label><p>Source excerpt: “{fact.source}”</p><button type="button" className="text-button" onClick={() => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, facts: item.facts.filter((_, i) => i !== fi) } : item) }); }}>Remove</button></div>)}
+            {project.dates && <p className="project-dates">{project.dates}</p>}
+            {project.facts.map((fact, fi) => <div className="review-fact" key={fact.id}><label>Fact<textarea value={fact.text} maxLength={400} onChange={(event) => updateFact(pi, fi, event.target.value)} rows={2}/></label><button type="button" className="text-button" onClick={() => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, facts: item.facts.filter((_, i) => i !== fi) } : item) }); }}>Remove</button></div>)}
           </div>)}<button className="primary-button" type="button" onClick={approveResume} disabled={busy || resumeApproved}>Approve reviewed facts</button></div>}
         </>}
         {step === 2 && <>
           <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2>Tell the story behind the work.</h2></div>
-          <p className="detail-note">{approvedProfile ? `${approvedProfile.profession} · ${approvedProfile.seniority}` : "Review your resume profile first."} Questions display as text. Microphone audio is sent to Meta only after you finish an answer.</p>
+          <p className="detail-note">{approvedProfile ? `${approvedProfile.profession} · ${approvedProfile.seniority}` : "Review your resume first."}</p>
           <label className="consent-check"><input type="checkbox" checked={practiceConsent} onChange={(event) => { if (event.target.checked) setPracticeConsent(true); else stopInterview(); }}/> This is a consensual practice session. No employer or participant rule prohibits recording or AI use.</label>
           {interviewError && <p className="step-error" role="alert">{interviewError}</p>}
           <div className="interview-controls" aria-live="polite">
@@ -368,7 +376,7 @@ export function JourneyApp() {
             })}>Remove</button></div>)}
             <label className="field-label">Project or accomplishment<input value={projectTitle} maxLength={100} onChange={(event) => setProjectTitle(event.target.value)}/></label>
             <label className="field-label">Supported fact · copy a short phrase from your response<textarea value={projectFact} maxLength={300} rows={2} onChange={(event) => setProjectFact(event.target.value)}/></label>
-            <button className="secondary-button" type="button" onClick={addInterviewMemory}>Approve this example</button>
+            <div className="inline-actions"><button className="secondary-button" type="button" onClick={addInterviewMemory}>Add to Career Memory</button>{savedNotice && <span className="saved-note" role="status">✓ Saved</span>}</div>
           </div>
           <button className="primary-button" type="button" disabled={!hasMemory || busy || interviewPhase === "permission" || interviewPhase === "listening" || interviewPhase === "processing"} onClick={() => {
             pauseInterview();
@@ -382,13 +390,13 @@ export function JourneyApp() {
               setTalkSaved(true); setStep(3);
             });
           }}>Save &amp; Continue</button>
-          <p className="detail-note">{hasDesktopStorage() ? "Approved memory and saved proposals remain available after restart. Audio and transcripts do not." : "Browser preview keeps memory only until this tab closes."}</p>
+          <p className="detail-note">{hasDesktopStorage() ? "Saved on this device. Audio and transcripts are not kept." : "Browser preview is session-only."}</p>
         </>}
         {step === 3 && <>
           <div className="detail-heading"><span className="eyebrow">03 / THE OPPORTUNITY</span><h2>What are you preparing for?</h2></div>
-          <label className="field-label">Paste job description<textarea value={opportunityInput} maxLength={15000} rows={6} onChange={(event) => { setOpportunityInput(event.target.value); setOpportunityPdfName(""); setConfirmedOpportunity(null); }}/></label>
-          <div className="inline-actions"><button type="button" className="primary-button" disabled={busy || opportunityInput.trim().length < 30} onClick={() => void run(async () => { const result = await post<{ opportunity: Opportunity }>("/extract-opportunity", { text: opportunityInput }); setOpportunityDraft(result.opportunity); setConfirmedOpportunity(null); })}>{busy ? "Reading…" : "Identify role"}</button><label className="file-button">Or choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "opportunity")} disabled={busy}/></label></div>
-          {opportunityDraft && <div className="opportunity-review"><p className="detail-note">{opportunityDraft.confidence === "uncertain" ? "Company uncertain — confirm or correct it." : "Review and confirm the match."}</p>
+          <label className="field-label">Paste job description<textarea value={opportunityInput} maxLength={15000} rows={6} onChange={(event) => { setOpportunityInput(event.target.value); setOpportunityPdfName(""); setConfirmedOpportunity(null); setOpportunityDraft(null); }} onBlur={() => { if (opportunityInput.trim().length >= 30 && !busy && !opportunityDraft) void run(async () => { const result = await post<{ opportunity: Opportunity }>("/extract-opportunity", { text: opportunityInput }); setOpportunityDraft(result.opportunity); }); }}/></label>
+          <div className="inline-actions"><label className="file-button">Choose job description PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "opportunity")} disabled={busy}/></label>{busy && <span role="status">Identifying company and role…</span>}</div>
+          {opportunityDraft && <div className="opportunity-review"><p className="detail-note">{opportunityDraft.confidence === "uncertain" ? "Please enter the company and confirm the role." : "Confirm the company and role."}</p>
             <label className="field-label">Company<input value={opportunityDraft.company} maxLength={100} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, company: event.target.value, confidence: "uncertain" })}/></label>
             <label className="field-label">Role<input value={opportunityDraft.role} maxLength={100} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, role: event.target.value })}/></label>
             <button type="button" className="primary-button" disabled={!opportunityDraft.company.trim() || !opportunityDraft.role.trim() || busy} onClick={() => void run(async () => {
@@ -406,17 +414,15 @@ export function JourneyApp() {
             setOpportunityInput(previous?.description.startsWith("PDF: ") ? "" : previous?.description ?? "");
             setOpportunityPdfName(previous?.description.startsWith("PDF: ") ? previous.description.slice(5) : "");
           })}>Remove saved opportunity</button>}
-          <p className="detail-note">Company research and interviewer discovery are future features.</p>
+          <details className="optional-interviewers"><summary>Known interviewers (optional)</summary><p className="detail-note">Interviewer context is not available yet.</p><label className="field-label">LinkedIn profile URL<input type="url" placeholder="Not available yet" disabled /></label><label className="file-button unavailable-file" aria-disabled="true">Interviewer PDF · unavailable<input type="file" accept="application/pdf,.pdf" disabled /></label></details>
         </>}
         {step === 4 && <>
           <div className="detail-heading"><span className="eyebrow">04 / YOUR INTERVIEW</span><h2>Bring your own experience.</h2></div>
           <p className="detail-note">{canPractice ? `${confirmedOpportunity?.role} · ${confirmedOpportunity?.company} · ${approved.length} approved memory item${approved.length === 1 ? "" : "s"}` : "Add an approved memory and confirmed opportunity to begin."}</p>
-          <button type="button" className="primary-button" disabled={!canPractice} onClick={() => setPractice("personal")}>Start text practice</button>
-          <p className="detail-note">This job-specific practice view remains text only. Voice answers are available in Let’s Talk.</p>
+          <button type="button" className="primary-button practice-start" disabled={!canPractice} onClick={() => setPractice("personal")}>Start Practice</button>
         </>}
       </section>
-      <div className="synthetic-entry"><span>Synthetic test mode</span><button className="text-button" type="button" onClick={() => setPractice("synthetic")}>Open text demo ↗</button></div>
-      <footer className="page-footer"><span>VantSide Meta</span><span>Practice only · {hasDesktopStorage() ? "Approved memory stays on this device" : "Browser preview is session-only"}</span><button type="button" className="text-button" onClick={() => {
+      <footer className="page-footer"><span>VantSide</span><span>Practice only · {hasDesktopStorage() ? "Saved on this device" : "Session only"}</span><button type="button" className="text-button" onClick={() => {
         if (!window.confirm("Delete all saved Career Memory, proposals, sessions, and opportunities from this device?")) return;
         cancelActive();
         void run(async () => {

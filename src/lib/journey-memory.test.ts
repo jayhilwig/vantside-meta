@@ -2,7 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
 import { approveInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity,
-  pendingInterviewFacts, removeCareerProject, removeOpportunity, retainPendingFact, saveInterviewSession } from "./journey-memory";
+  pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume, retainPendingFact, saveInterviewSession } from "./journey-memory";
+
+test("removing a resume preserves independently supported interview facts", () => {
+  let state = approveResumeReview(emptyMemoryState(), review, "resume.pdf", now);
+  state = approveInterviewFact(state, { id: "interview-fact", title: "Interview project",
+    text: "Led a design review", source: "Led a design review", answer: "I led a design review",
+    sessionId: "session-1" }, now);
+  const removed = removeResume(state);
+  assert.equal(removed.career.materials.length, 0);
+  assert.equal(removed.career.identity, null);
+  assert.equal(approvedProjects(removed).length, 1);
+  assert.equal(approvedProjects(removed)[0].facts[0].id, "interview-fact");
+  assert.equal(removed.career.sources.some((source) => source.kind === "resume"), false);
+});
 
 const now = "2026-10-28T12:00:00.000Z";
 const review = { profile: { profession: "Product designer", seniority: "Senior",
