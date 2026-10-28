@@ -1,8 +1,9 @@
 export type AnswerRecorder = { finish: () => string; discard: () => void };
 
-export async function startAnswerRecording(signal: AbortSignal): Promise<AnswerRecorder> {
+export async function startAnswerRecording(signal: AbortSignal, deviceId?: string): Promise<AnswerRecorder> {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture is not available in this Windows WebView.");
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}) } });
   if (signal.aborted) { stream.getTracks().forEach((track) => track.stop()); throw new Error("Recording stopped."); }
   let context: AudioContext | null = null;
   try {

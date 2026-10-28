@@ -24,6 +24,8 @@ The intended product is not a resume chatbot, answer generator, job screener, or
 
 The target accepts PDF or Word resumes and proposes source-linked work history, professional identity, skills, projects and context. The user reviews and corrects facts before approval; upload alone does not complete the step. Profession inference should avoid a separate profession form unless the source is ambiguous. The current build accepts **PDF only** and proposes source-linked projects, facts, profession, seniority, and a career overview for review; this inference still needs live verification.
 
+The current resume proposal also includes explicit title evidence for seniority and quoted date evidence when the PDF supplies dates. Omitted or uncertain dates stay blank.
+
 ### 2. Let's Talk
 
 A Meta-powered, spoken foundational interview based on that specific resume and profession—not a job description yet. For a product designer, ask about design decisions, collaboration, projects and outcomes; for another profession, ask appropriate questions about actual work. Follow answers with thoughtful, adaptive prompts.
@@ -35,6 +37,8 @@ Sessions may be brief or extended. The result is an evolving **Career Memory**, 
 Add a job description as a document or pasted text; URL import is a later option. Identify and confirm the company and role, especially when the match is uncertain. Use Career Memory to find relevant experience and ask targeted follow-up questions. In the intended product, keep the job description, round plan, and optional sourced company/interviewer context under a distinct opportunity. The current build accepts pasted text or PDF and restores the most recently confirmed opportunity on launch. Pasted job text is stored locally; for PDF input only its filename and confirmed company/role are retained, not PDF bytes or extracted full text.
 
 Confirmed interviewers must come from the user or reliable evidence; suggested employees are never presented as confirmed interviewers. Public company research is a later enhancement, not a prerequisite.
+
+The current Opportunity review extracts company, role, supported seniority and short, quoted requirements from pasted text or a PDF. It presents possible strengths linked to approved Career Memory facts and marks unlinked requirements as needing evidence, without a match score. Confirmation stores reviewed requirements and targeted preparation questions with that opportunity. A user answer can become a pending global-memory proposal only after explicit review and approval.
 
 ### 4. Your Interview
 

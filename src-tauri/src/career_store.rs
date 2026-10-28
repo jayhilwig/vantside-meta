@@ -6,6 +6,7 @@ use std::{fs, path::Path, time::Duration};
 use tauri::Manager;
 
 const MIGRATION_1: &str = include_str!("../migrations/001_career_memory.sql");
+const MIGRATION_2: &str = include_str!("../migrations/002_opportunity_intelligence.sql");
 const FILE_NAME: &str = "career-memory.sqlite3";
 
 fn storage_error() -> String {
@@ -41,13 +42,19 @@ fn open_at(path: &Path) -> Result<Connection, String> {
 
 fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version > 1 {
+    if version > 2 {
         return Err(rusqlite::Error::InvalidQuery);
     }
     if version == 0 {
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute_batch(MIGRATION_1)?;
         tx.pragma_update(None, "user_version", 1)?;
+        tx.commit()?;
+    }
+    if version <= 1 {
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute_batch(MIGRATION_2)?;
+        tx.pragma_update(None, "user_version", 2)?;
         tx.commit()?;
     }
     Ok(())
@@ -192,10 +199,11 @@ fn save_at(
     for proposal in array(state, "proposals")? {
         let proposal_id = field(proposal, "id")?;
         tx.execute(
-            "INSERT INTO memory_proposals (id, origin_session_id, payload) VALUES (?1, ?2, ?3)",
+            "INSERT INTO memory_proposals (id, origin_session_id, opportunity_id, payload) VALUES (?1, ?2, ?3, ?4)",
             params![
                 proposal_id,
                 proposal.get("originSessionId").and_then(Value::as_str),
+                proposal.get("opportunityId").and_then(Value::as_str),
                 payload(proposal)?
             ],
         )?;
@@ -303,6 +311,26 @@ pub async fn save_career_memory(
 mod tests {
     use super::*;
 
+    #[test]
+    fn upgrades_existing_v1_opportunity_without_data_loss() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(MIGRATION_1).unwrap();
+        connection.pragma_update(None, "user_version", 1).unwrap();
+        connection.execute("INSERT INTO job_opportunities (id, payload) VALUES (?1, ?2)",
+            params!["old-job", r#"{"id":"old-job","company":"Example","role":"Designer","description":"Existing job text","confirmedAt":"2026-10-28T00:00:00Z"}"#]).unwrap();
+        migrate(&mut connection).unwrap();
+        assert_eq!(
+            load_at(&connection).unwrap()["state"]["opportunities"][0]["id"],
+            "old-job"
+        );
+        assert_eq!(
+            connection
+                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+                .unwrap(),
+            2
+        );
+    }
+
     fn sample() -> Value {
         json!({"career":{"version":1,"identity":{"profession":"Product designer","seniority":"Senior","careerSummary":"Led onboarding work for a product team.","sourceIds":["source-1"],"approvedAt":"2026-10-28T00:00:00Z"},"materials":[{"id":"resume-1","kind":"resume","label":"Resume","addedAt":"2026-10-28T00:00:00Z"}],
           "sources":[{"id":"source-1","kind":"resume","originId":"resume-1","label":"Resume","excerpt":"Led onboarding work","capturedAt":"2026-10-28T00:00:00Z"},
@@ -330,7 +358,7 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            1
+            2
         );
         assert_eq!(load_at(&connection).unwrap()["revision"], 0);
         assert_eq!(save_at(&mut connection, &sample(), 0).unwrap(), 1);

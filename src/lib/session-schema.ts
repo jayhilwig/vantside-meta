@@ -10,12 +10,14 @@ export const memoryProjectSchema = z.object({
   projectId: z.string().regex(/^[a-z0-9-]{1,40}$/),
   title: z.string().trim().min(2).max(100),
   dates: z.string().trim().min(4).max(60).optional(),
+  dateSource: z.string().trim().min(4).max(180).optional(),
   facts: z.array(memoryFactSchema).min(1).max(12),
-}).strict();
+}).strict().refine((project) => Boolean(project.dates) === Boolean(project.dateSource));
 
 export const careerProfileSchema = z.object({
   profession: z.string().trim().min(2).max(100),
   seniority: z.string().trim().min(2).max(100),
+  senioritySource: z.string().trim().min(4).max(180).optional(),
   careerSummary: z.string().trim().min(10).max(500),
 }).strict();
 export const resumeInterviewProposalSchema = z.object({

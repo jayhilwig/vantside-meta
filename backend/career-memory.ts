@@ -40,8 +40,9 @@ export const careerProjectSchema = z.object({
   id,
   title: z.string().trim().min(2).max(100),
   dates: z.string().trim().min(4).max(60).optional(),
+  dateSource: z.string().trim().min(4).max(180).optional(),
   organization: z.string().trim().min(2).max(100).optional(),
-}).strict();
+}).strict().refine((project) => Boolean(project.dates) === Boolean(project.dateSource));
 
 export const careerMemorySchema = z.object({
   version: z.literal(1),
@@ -69,6 +70,11 @@ export const jobOpportunitySchema = z.object({
   role: z.string().trim().min(2).max(100),
   description: z.string().trim().min(5).max(15000),
   confirmedAt: timestamp,
+  seniority: z.string().trim().min(2).max(80).optional(),
+  sourceLabel: z.string().trim().min(1).max(260).optional(),
+  requirements: z.array(z.object({ id, kind: z.enum(["responsibility", "required", "preferred", "domain"]), text: z.string().trim().min(5).max(220), sourceExcerpt: z.string().trim().min(5).max(300) }).strict()).max(12).optional(),
+  alignment: z.object({ strengths: z.array(z.object({ requirementId: id, factId: id }).strict()).max(12), needsEvidence: z.array(id).max(12) }).strict().optional(),
+  preparationQuestions: z.array(z.string().trim().min(10).max(250)).max(5).optional(),
 }).strict();
 
 export const interviewRoundSchema = z.object({
@@ -91,6 +97,7 @@ export const proposedMemoryUpdateSchema = z.object({
   text: approvedCareerFactSchema.shape.text,
   sourceIds,
   originSessionId: id.optional(),
+  opportunityId: id.optional(),
   proposedAt: timestamp,
 }).strict();
 
@@ -130,6 +137,8 @@ export const memoryStateSchema = z.object({
     checkSources(proposal.sourceIds, ["proposals", index, "sourceIds"]);
     if (proposal.originSessionId && !sessions.has(proposal.originSessionId))
       ctx.addIssue({ code: "custom", path: ["proposals", index, "originSessionId"], message: "Unknown interview session" });
+    if (proposal.opportunityId && !opportunities.has(proposal.opportunityId))
+      ctx.addIssue({ code: "custom", path: ["proposals", index, "opportunityId"], message: "Unknown opportunity" });
   });
   state.rounds.forEach((round, index) => {
     if (!opportunities.has(round.opportunityId))
@@ -253,6 +262,9 @@ export function deleteSession(state: MemoryState, sessionId: string): MemoryStat
 
 export function deleteOpportunity(state: MemoryState, opportunityId: string): MemoryState {
   checked(state);
-  return checked({ ...state, opportunities: state.opportunities.filter((item) => item.id !== opportunityId),
-    rounds: state.rounds.filter((round) => round.opportunityId !== opportunityId) });
+  const sourceIds = state.proposals.filter((proposal) => proposal.opportunityId === opportunityId).flatMap((proposal) => proposal.sourceIds);
+  const withoutPendingEvidence = sourceIds.reduce(deleteEvidence, state);
+  return checked({ ...withoutPendingEvidence, opportunities: withoutPendingEvidence.opportunities.filter((item) => item.id !== opportunityId),
+    rounds: withoutPendingEvidence.rounds.filter((round) => round.opportunityId !== opportunityId),
+    proposals: withoutPendingEvidence.proposals.filter((proposal) => proposal.opportunityId !== opportunityId) });
 }

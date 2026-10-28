@@ -133,6 +133,18 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .detail-heading { margin-bottom: 22px; }
 .detail-heading h2 { margin: 10px 0 0; font-size: 27px; font-weight: 600; letter-spacing: -.05em; }
 .detail-note { max-width: 680px; color: #70706b; font-size: 11px; line-height: 1.6; }
+.primary-upload { background: var(--action); border-color: var(--action); color: #fff; }
+.primary-upload:hover { background: #078e4b; }
+.consent-check { padding: 13px 15px; border: 1px solid #acd9bc; border-radius: 6px; background: #f4faf6; }
+.microphone-setup { display: flex; align-items: center; gap: 15px; margin: 12px 0; font-size: 11px; color: var(--muted); }
+.microphone-setup select { margin-left: 8px; padding: 5px; }
+.manual-memory { max-width: 760px; margin-top: 20px; padding: 16px; border: 1px solid var(--border); border-radius: 6px; }
+.job-analysis { max-width: 760px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.6; }
+.job-analysis h3 { margin: 16px 0 8px; font-size: 15px; }
+.job-requirement { padding: 9px 0; border-bottom: 1px solid var(--border); }
+.job-requirement details { color: var(--muted); }
+.job-requirement .text-button { margin-top: 5px; }
+.job-follow-up { margin-top: 18px; padding: 15px; border: 1px solid var(--border); border-radius: 6px; }
 .resume-upload { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 15px; }
 .resume-upload .detail-note { margin: 0; overflow-wrap: anywhere; }
 .step-card:not(:disabled) .step-card-status { color: #087c42; }

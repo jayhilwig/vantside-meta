@@ -1,16 +1,17 @@
 import { addEvidence, addProposal, approveProposal, deleteMaterial, deleteOpportunity,
   memoryStateSchema, type MemoryState } from "../../backend/career-memory";
 import type { CareerProfile, MemoryProject, Opportunity } from "./session-schema";
+import type { OpportunityAnalysis } from "./opportunity-analysis";
 
 export type ResumeReview = { profile: CareerProfile; projects: MemoryProject[] };
-export type PendingInterviewFact = { id: string; title: string; text: string; source: string; sessionId: string; answer?: string };
+export type PendingInterviewFact = { id: string; title: string; text: string; source: string; sessionId: string; answer?: string; opportunityId?: string };
 
 export const newMemoryId = (prefix: string) => `${prefix}-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 
 export function approvedProjects(state: MemoryState): MemoryProject[] {
   const sources = new Map(state.career.sources.map((source) => [source.id, source.excerpt]));
   return state.career.projects.map((project) => ({
-    projectId: project.id, title: project.title, dates: project.dates,
+    projectId: project.id, title: project.title, dates: project.dates, dateSource: project.dateSource,
     facts: state.career.facts.filter((fact) => fact.projectId === project.id).map((fact) => ({
       id: fact.id, text: fact.text, source: sources.get(fact.sourceIds[0]) ?? "",
     })),
@@ -20,7 +21,7 @@ export function approvedProjects(state: MemoryState): MemoryProject[] {
 export function pendingInterviewFacts(state: MemoryState): PendingInterviewFact[] {
   const sources = new Map(state.career.sources.map((source) => [source.id, source.excerpt]));
   return state.proposals.map((proposal) => ({ id: proposal.id, title: proposal.projectTitle,
-    text: proposal.text, source: sources.get(proposal.sourceIds[0]) ?? "", sessionId: proposal.originSessionId ?? "" }));
+    text: proposal.text, source: sources.get(proposal.sourceIds[0]) ?? "", sessionId: proposal.originSessionId ?? "", opportunityId: proposal.opportunityId }));
 }
 
 export function approveResumeReview(state: MemoryState, review: ResumeReview, filename: string, now: string): MemoryState {
@@ -35,7 +36,7 @@ export function approveResumeReview(state: MemoryState, review: ResumeReview, fi
   for (const project of review.projects) {
     const keptFacts = project.facts.filter((fact) => fact.text.trim().length >= 5 && fact.source.trim().length >= 5);
     if (!keptFacts.length || project.title.trim().length < 2) continue;
-    projects.push({ id: project.projectId, title: project.title.trim(), dates: project.dates });
+    projects.push({ id: project.projectId, title: project.title.trim(), dates: project.dates, dateSource: project.dateSource });
     for (const fact of keptFacts) {
       const sourceId = newMemoryId("quote");
       sources.push({ id: sourceId, kind: "resume", originId: materialId,
@@ -72,7 +73,7 @@ export function retainPendingFact(state: MemoryState, pending: PendingInterviewF
   const existingProject = next.career.projects.find((project) => project.title.toLowerCase() === pending.title.trim().toLowerCase());
   next = addProposal(next, { id: pending.id, projectId: existingProject?.id ?? newMemoryId("project"), projectTitle: existingProject?.title ?? pending.title.trim(),
     kind: "accomplishment", text: pending.text.trim(), sourceIds: [sourceId],
-    originSessionId: pending.sessionId, proposedAt: now });
+    originSessionId: pending.sessionId, opportunityId: pending.opportunityId, proposedAt: now });
   return next;
 }
 
@@ -98,32 +99,55 @@ export function removeCareerProject(state: MemoryState, projectId: string): Memo
   const usedSources = new Set([...facts.flatMap((fact) => fact.sourceIds), ...state.proposals.flatMap((item) => item.sourceIds), ...identitySources]);
   const sources = state.career.sources.filter((source) => usedSources.has(source.id));
   const usedMaterials = new Set(sources.filter((source) => source.kind !== "interview").map((source) => source.originId));
-  return memoryStateSchema.parse({ ...state, career: { ...state.career,
+  return refreshOpportunityLinks(memoryStateSchema.parse({ ...state, career: { ...state.career,
     identity,
     sources,
     materials: state.career.materials.filter((material) => usedMaterials.has(material.id)),
     projects: state.career.projects.filter((project) => project.id !== projectId),
     facts,
-  } });
+  } }));
+}
+
+function refreshOpportunityLinks(state: MemoryState): MemoryState {
+  const liveFacts = new Set(state.career.facts.map((fact) => fact.id));
+  return memoryStateSchema.parse({ ...state, opportunities: state.opportunities.map((opportunity) => {
+    if (!opportunity.alignment) return opportunity;
+    const strengths = opportunity.alignment.strengths.filter((item) => liveFacts.has(item.factId));
+    const needsEvidence = [...new Set([...opportunity.alignment.needsEvidence,
+      ...opportunity.alignment.strengths.filter((item) => !liveFacts.has(item.factId)).map((item) => item.requirementId)])];
+    return { ...opportunity, alignment: { strengths, needsEvidence } };
+  }) });
 }
 
 export function removeResume(state: MemoryState): MemoryState {
   const withoutResume = state.career.materials.filter((material) => material.kind === "resume")
     .reduce((current, material) => deleteMaterial(current, material.id), state);
   const liveProjectIds = new Set(withoutResume.career.facts.map((fact) => fact.projectId));
-  return memoryStateSchema.parse({ ...withoutResume, career: { ...withoutResume.career,
+  return refreshOpportunityLinks(memoryStateSchema.parse({ ...withoutResume, career: { ...withoutResume.career,
     identity: null,
     projects: withoutResume.career.projects.filter((project) => liveProjectIds.has(project.id)),
-  } });
+  } }));
 }
 
-export function confirmOpportunity(state: MemoryState, opportunity: Opportunity, description: string, now: string): MemoryState {
+export function confirmOpportunity(state: MemoryState, opportunity: Opportunity, description: string, now: string,
+  analysis?: OpportunityAnalysis, alignment?: { strengths: Array<{ requirementId: string; factId: string }>; needsEvidence: string[] }, sourceLabel?: string): MemoryState {
   const company = opportunity.company.trim();
   const role = opportunity.role.trim();
+  const factIds = new Set(state.career.facts.map((fact) => fact.id));
+  const requirementIds = new Set(analysis?.requirements.map((item) => item.id) ?? []);
+  const verifiedStrengths = alignment?.strengths.filter((item) => factIds.has(item.factId) && requirementIds.has(item.requirementId)) ?? [];
+  const linkedRequirements = new Set(verifiedStrengths.map((item) => item.requirementId));
+  const reviewedAlignment = analysis ? { strengths: verifiedStrengths,
+    needsEvidence: analysis.requirements.filter((item) => !linkedRequirements.has(item.id)).map((item) => item.id) } : undefined;
   const existing = state.opportunities.find((item) => item.company === company && item.role === role && item.description === description.trim());
-  if (existing) return state;
-  return memoryStateSchema.parse({ ...state, opportunities: [...state.opportunities,
-    { id: newMemoryId("job"), company, role, description: description.trim(), confirmedAt: now }] });
+  if (existing && !analysis) return state;
+  const record = { id: existing?.id ?? newMemoryId("job"), company, role, description: description.trim(), confirmedAt: existing?.confirmedAt ?? now,
+      seniority: analysis?.seniority, sourceLabel, requirements: analysis?.requirements, alignment: reviewedAlignment,
+      preparationQuestions: analysis?.requirements.filter((item) => reviewedAlignment?.needsEvidence.includes(item.id)).slice(0, 3)
+        .map((item) => `What past work can you share that relates to ${item.text.toLowerCase()}?`) };
+  return memoryStateSchema.parse({ ...state, opportunities: existing
+    ? state.opportunities.map((item) => item.id === existing.id ? record : item)
+    : [...state.opportunities, record] });
 }
 
 export function removeOpportunity(state: MemoryState, opportunityId: string): MemoryState {

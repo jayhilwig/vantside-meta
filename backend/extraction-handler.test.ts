@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { extractOpportunity, extractResume } from "./extraction-handler";
+import { resumeInterviewProposalSchema } from "../src/lib/session-schema";
+
+test("resume date and title evidence require paired, reviewable fields", () => {
+  const base = { profile: { profession: "Designer", seniority: "Senior", senioritySource: "Senior Product Designer",
+    careerSummary: "Worked on research and product design." }, projects: [{ projectId: "project", title: "Research",
+    dates: "2022–2024", dateSource: "2022–2024", facts: [{ id: "fact", text: "Led research", source: "Led research" }] }] };
+  assert.equal(resumeInterviewProposalSchema.safeParse(base).success, true);
+  assert.equal(resumeInterviewProposalSchema.safeParse({ ...base, projects: [{ ...base.projects[0], dateSource: undefined }] }).success, false);
+});
 import { createCue } from "./cue-handler";
 
 test("resume PDF proposals, opportunity confirmation data, and personal cues stay source-linked", async () => {
