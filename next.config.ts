@@ -9,6 +9,6 @@ if (
   throw new Error("Desktop cue API must use a plain loopback origin until hosted authentication is implemented.");
 }
 
-const nextConfig: NextConfig = { output: "export" };
+const nextConfig: NextConfig = { output: "export", experimental: { cpus: 1, webpackBuildWorker: false } };
 
 export default nextConfig;

@@ -66,7 +66,7 @@ export const jobOpportunitySchema = z.object({
   id,
   company: z.string().trim().min(2).max(100),
   role: z.string().trim().min(2).max(100),
-  description: z.string().trim().min(5).max(4000),
+  description: z.string().trim().min(5).max(15000),
   confirmedAt: timestamp,
 }).strict();
 

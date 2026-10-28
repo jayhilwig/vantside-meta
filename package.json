@@ -4,13 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack",
+    "build": "node scripts/clean-next-output.mjs && next build --webpack",
     "backend:dev": "node --env-file=.env.local --import tsx backend/server.ts",
     "tauri": "tauri",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tauri-apps/api": "2.12.4",
     "next": "16.1.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

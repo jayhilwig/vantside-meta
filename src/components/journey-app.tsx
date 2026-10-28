@@ -4,10 +4,15 @@ import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { BrandMark, OpeningSequence, PracticeApp } from "./practice-app";
 import { startAnswerRecording, type AnswerRecorder } from "@/lib/record-answer";
 import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-schema";
+import { emptyMemoryState, type MemoryState } from "../../backend/career-memory";
+import { hasDesktopStorage, loadCareerMemory, saveCareerMemory } from "@/lib/career-memory-storage";
+import { approvedProjects, approveInterviewFact, approveManualInterviewFact, approveResumeReview,
+  confirmOpportunity, newMemoryId, pendingInterviewFacts, removeCareerProject, removeOpportunity,
+  retainPendingFact, saveInterviewSession, type PendingInterviewFact } from "@/lib/journey-memory";
 
 type Step = 1 | 2 | 3 | 4;
 type ResumeProposal = { profile: CareerProfile; projects: MemoryProject[] };
-type MemoryProposal = { title: string; text: string; source: string };
+type MemoryProposal = PendingInterviewFact;
 type InterviewPhase = "idle" | "permission" | "listening" | "processing" | "review" | "paused" | "stopped" | "error";
 const api = (process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 
@@ -27,11 +32,16 @@ async function post<T>(route: string, body: object, signal?: AbortSignal): Promi
   return result as T;
 }
 
-const slug = () => `interview-${Date.now().toString(36)}`;
-
 export function JourneyApp() {
   const [intro, setIntro] = useState(true);
   const closeIntro = useCallback(() => setIntro(false), []);
+  const [loaded, setLoaded] = useState(false);
+  const [storageFault, setStorageFault] = useState("");
+  const memoryRef = useRef<MemoryState>(emptyMemoryState());
+  const revisionRef = useRef<number | null>(null);
+  const writeQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const activeSessionRef = useRef<string | null>(null);
+  const [opportunityPdfName, setOpportunityPdfName] = useState("");
   const [step, setStep] = useState<Step>(1);
   const [practice, setPractice] = useState<"personal" | "synthetic" | null>(null);
   const [resumeName, setResumeName] = useState("");
@@ -63,6 +73,47 @@ export function JourneyApp() {
   const hasMemory = approved.some((project) => project.title.trim() && project.facts.some((fact) => fact.text.trim() && fact.source.trim()));
   const canPractice = hasMemory && !!confirmedOpportunity;
   const prompt = interviewQuestion || "Start the interview to get a question based on your approved resume.";
+
+  useEffect(() => {
+    let mounted = true;
+    void loadCareerMemory().then(({ state, revision }) => {
+      if (!mounted) return;
+      memoryRef.current = state; revisionRef.current = revision;
+      const projects = approvedProjects(state);
+      const lastResume = state.career.materials.filter((material) => material.kind === "resume").at(-1);
+      const lastOpportunity = state.opportunities.at(-1);
+      setApproved(projects);
+      setApprovedProfile(state.career.identity ? {
+        profession: state.career.identity.profession, seniority: state.career.identity.seniority,
+        careerSummary: state.career.identity.careerSummary,
+      } : null);
+      setResumeApproved(Boolean(state.career.identity && lastResume));
+      setResumeName(lastResume?.label ?? "");
+      setMemoryProposals(pendingInterviewFacts(state));
+      setTalkSaved(state.sessions.some((session) => session.status === "paused" || session.status === "completed"));
+      if (lastOpportunity) {
+        setConfirmedOpportunity({ company: lastOpportunity.company, role: lastOpportunity.role, confidence: "clear" });
+        if (lastOpportunity.description.startsWith("PDF: ")) setOpportunityPdfName(lastOpportunity.description.slice(5));
+        else setOpportunityInput(lastOpportunity.description);
+      }
+      if (lastOpportunity && projects.length) setStep(4);
+      else if (projects.length) setStep(2);
+    }).catch((cause) => {
+      if (mounted) setStorageFault(cause instanceof Error ? cause.message : "Saved Career Memory could not be opened.");
+    }).finally(() => { if (mounted) setLoaded(true); });
+    return () => { mounted = false; };
+  }, []);
+
+  function commitMemory(transform: (state: MemoryState) => MemoryState): Promise<MemoryState> {
+    const operation = writeQueueRef.current.then(async () => {
+      const next = transform(memoryRef.current);
+      const revision = await saveCareerMemory(next, revisionRef.current);
+      memoryRef.current = next; revisionRef.current = revision;
+      return next;
+    });
+    writeQueueRef.current = operation.catch(() => undefined);
+    return operation;
+  }
 
   function cancelActive() {
     generationRef.current++;
@@ -101,6 +152,7 @@ export function JourneyApp() {
     try {
       const result = await post<{ question: string }>("/interview/start", { profile: approvedProfile, projects: approved }, request.signal);
       if (generation !== generationRef.current) return;
+      activeSessionRef.current = newMemoryId("session");
       setInterviewQuestion(result.question); setInterviewPhase("idle");
     } catch (cause) {
       if (generation !== generationRef.current) return;
@@ -154,12 +206,15 @@ export function JourneyApp() {
     const generation = ++generationRef.current;
     setInterviewPhase("processing"); setInterviewError("");
     try {
-      const result = await post<{ question: string; summary: string; proposals: MemoryProposal[] }>("/interview/turn",
+      const result = await post<{ question: string; summary: string; proposals: Array<Pick<MemoryProposal, "title" | "text" | "source">> }>("/interview/turn",
         { profile: approvedProfile, projects: approved, question: interviewQuestion, answer: responseText, summary: interviewSummary }, request.signal);
       if (generation !== generationRef.current) return;
       setConversation((old) => [...old, { question: interviewQuestion, answer: responseText }]); setAnswer("");
       setInterviewQuestion(result.question); setInterviewSummary(result.summary);
-      setMemoryProposals((old) => [...old, ...result.proposals]); setInterviewPhase("idle");
+      const sessionId = activeSessionRef.current ?? newMemoryId("session");
+      activeSessionRef.current = sessionId;
+      setMemoryProposals((old) => [...old, ...result.proposals.map((item) => ({ ...item,
+        id: newMemoryId("fact"), sessionId, answer: responseText }))]); setInterviewPhase("idle");
     } catch (cause) {
       if (generation !== generationRef.current) return;
       setInterviewError(cause instanceof Error ? cause.message : "Could not continue the conversation."); setInterviewPhase("error");
@@ -170,13 +225,20 @@ export function JourneyApp() {
   function stopInterview() {
     cancelActive(); setInterviewPhase("stopped"); setAnswer(""); setPracticeConsent(false);
     setConversation([]); setInterviewSummary(""); setInterviewQuestion("");
+    const sessionId = activeSessionRef.current; activeSessionRef.current = null;
+    if (sessionId && memoryRef.current.sessions.some((session) => session.id === sessionId)) {
+      void commitMemory((state) => saveInterviewSession(state, sessionId, new Date().toISOString(), "cancelled"))
+        .catch(() => setError("The interview stopped, but its saved session status could not be updated."));
+    }
   }
 
   function approveMemoryProposal(index: number) {
     const proposal = memoryProposals[index]; if (!proposal?.text.trim()) return;
-    const id = slug();
-    setApproved((old) => [...old, { projectId: id, title: proposal.title, facts: [{ id: `${id}-fact`, text: proposal.text.trim(), source: proposal.source }] }]);
-    setMemoryProposals((old) => old.filter((_, i) => i !== index));
+    void run(async () => {
+      const next = await commitMemory((state) => approveInterviewFact(state, proposal, new Date().toISOString()));
+      setApproved(approvedProjects(next));
+      setMemoryProposals((old) => old.filter((item) => item.id !== proposal.id));
+    });
   }
 
   async function run(task: () => Promise<void>) {
@@ -197,7 +259,7 @@ export function JourneyApp() {
         setResumeName(file.name); setProposal(result.proposal); setResumeApproved(false);
       } else {
         const result = await post<{ opportunity: Opportunity }>("/extract-opportunity", { filename: file.name, data });
-        setOpportunityDraft(result.opportunity); setConfirmedOpportunity(null);
+        setOpportunityDraft(result.opportunity); setOpportunityInput(""); setOpportunityPdfName(file.name); setConfirmedOpportunity(null);
       }
     });
   }
@@ -216,20 +278,32 @@ export function JourneyApp() {
     if (!proposal || proposal.profile.profession.trim().length < 2 || proposal.profile.seniority.trim().length < 2 || proposal.profile.careerSummary.trim().length < 10) {
       setError("Review the profession, seniority, and career overview before approving."); return;
     }
-    cancelActive(); setInterviewPhase("idle"); setInterviewQuestion(""); setInterviewSummary(""); setConversation([]); setAnswer(""); setMemoryProposals([]); setPracticeConsent(false);
-    setApproved((old) => [...old.filter((project) => project.projectId.startsWith("interview-")), ...projects]);
-    setApprovedProfile({ profession: proposal.profile.profession.trim(), seniority: proposal.profile.seniority.trim(), careerSummary: proposal.profile.careerSummary.trim() });
-    setResumeApproved(true); setError(""); setStep(2);
+    const reviewed = { profile: proposal.profile, projects };
+    void run(async () => {
+      const next = await commitMemory((state) => approveResumeReview(state, reviewed, resumeName, new Date().toISOString()));
+      cancelActive(); activeSessionRef.current = null;
+      setInterviewPhase("idle"); setInterviewQuestion(""); setInterviewSummary(""); setConversation([]); setAnswer(""); setPracticeConsent(false);
+      setApproved(approvedProjects(next)); setApprovedProfile(reviewed.profile);
+      setResumeApproved(true); setStep(2);
+    });
   }
 
   function addInterviewMemory() {
     if (!projectTitle.trim() || !projectFact.trim() || !conversation.length) { setError("Share an example in the conversation, then name and approve it."); return; }
     const supported = conversation.some((turn) => turn.answer.toLowerCase().includes(projectFact.trim().toLowerCase()));
     if (!supported) { setError("Use a short phrase from one of your responses as the supported fact."); return; }
-    const id = slug();
-    setApproved((old) => [...old, { projectId: id, title: projectTitle.trim(), facts: [{ id: `${id}-fact`, text: projectFact.trim(), source: projectFact.trim() }] }]);
-    setProjectTitle(""); setProjectFact(""); setError("");
+    const matched = conversation.find((turn) => turn.answer.toLowerCase().includes(projectFact.trim().toLowerCase()));
+    if (!matched) return;
+    const sessionId = activeSessionRef.current ?? newMemoryId("session");
+    activeSessionRef.current = sessionId;
+    void run(async () => {
+      const next = await commitMemory((state) => approveManualInterviewFact(state, projectTitle.trim(), projectFact.trim(), matched.answer, sessionId, new Date().toISOString()));
+      setApproved(approvedProjects(next)); setProjectTitle(""); setProjectFact("");
+    });
   }
+
+  if (!loaded) return <main className="app-shell">{intro && <OpeningSequence onFinish={closeIntro} />}<div className="page-wrap" role="status">Loading Career Memory…</div></main>;
+  if (storageFault) return <main className="app-shell"><div className="page-wrap" role="alert">{storageFault}</div></main>;
 
   if (practice) return <PracticeApp projects={practice === "personal" ? approved : undefined}
     opportunity={practice === "personal" && confirmedOpportunity ? confirmedOpportunity : undefined}
@@ -257,7 +331,7 @@ export function JourneyApp() {
         {step === 1 && <>
           <div className="detail-heading"><span className="eyebrow">01 / YOUR RESUME</span><h2>Start with what you’ve done.</h2></div>
           <label className="file-button">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label>
-          <p className="detail-note">{busy ? "Extracting with Muse Spark…" : resumeName ? `${resumeName} · ${resumeApproved ? "Approved" : "Review before approval"}` : "PDF under 4 MB · sent to Meta for extraction · kept only this session"}</p>
+          <p className="detail-note">{busy ? "Extracting with Muse Spark…" : resumeName ? `${resumeName} · ${resumeApproved ? "Approved" : "Review before approval"}` : "PDF under 4 MB · sent to Meta for extraction · PDF bytes are not saved"}</p>
           {proposal && <div className="review-list"><h3>Review proposed facts</h3>
             <div className="profile-review"><label className="field-label">Profession<input value={proposal.profile.profession} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, profession: event.target.value } }); }}/></label>
             <label className="field-label">Seniority<input value={proposal.profile.seniority} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value } }); }}/></label>
@@ -286,23 +360,52 @@ export function JourneyApp() {
           <button className="secondary-button" type="button" disabled={!practiceConsent || answer.trim().length < 10 || interviewPhase === "processing" || interviewPhase === "listening" || interviewPhase === "permission"} onClick={() => void submitInterviewAnswer()}>Continue conversation</button></>}
           <div className="memory-editor"><h3>Career Memory</h3><p className="detail-note">Approve at least one project or accomplishment. Interview entries are based on what you said here.</p>
             {memoryProposals.map((item, index) => <div className="review-fact" key={`${index}-${item.source}`}><p className="eyebrow">PROPOSED · NOT APPROVED</p><strong>{item.title}</strong><label className="field-label">Review fact<textarea rows={2} maxLength={300} value={item.text} onChange={(event) => setMemoryProposals((old) => old.map((proposal, i) => i === index ? { ...proposal, text: event.target.value } : proposal))}/></label><p>From your answer: “{item.source}”</p><div className="inline-actions"><button className="secondary-button" type="button" disabled={item.text.trim().length < 5} onClick={() => approveMemoryProposal(index)}>Approve</button><button className="text-button" type="button" onClick={() => setMemoryProposals((old) => old.filter((_, i) => i !== index))}>Dismiss</button></div></div>)}
-            {approved.map((project) => <div className="memory-row" key={project.projectId}><strong>{project.title}</strong><span>{project.facts.length} approved fact{project.facts.length === 1 ? "" : "s"}</span><button type="button" className="text-button" onClick={() => { if (!project.projectId.startsWith("interview-")) setResumeApproved(false); setApproved((old) => old.filter((item) => item.projectId !== project.projectId)); }}>Remove</button></div>)}
+            {approved.map((project) => <div className="memory-row" key={project.projectId}><strong>{project.title}</strong><span>{project.facts.length} approved fact{project.facts.length === 1 ? "" : "s"}</span><button type="button" className="text-button" onClick={() => void run(async () => {
+              const next = await commitMemory((state) => removeCareerProject(state, project.projectId));
+              setApproved(approvedProjects(next)); setResumeApproved(Boolean(next.career.identity));
+              setResumeName(next.career.materials.filter((material) => material.kind === "resume").at(-1)?.label ?? "");
+              if (!next.career.identity) setApprovedProfile(null);
+            })}>Remove</button></div>)}
             <label className="field-label">Project or accomplishment<input value={projectTitle} maxLength={100} onChange={(event) => setProjectTitle(event.target.value)}/></label>
             <label className="field-label">Supported fact · copy a short phrase from your response<textarea value={projectFact} maxLength={300} rows={2} onChange={(event) => setProjectFact(event.target.value)}/></label>
             <button className="secondary-button" type="button" onClick={addInterviewMemory}>Approve this example</button>
           </div>
-          <button className="primary-button" type="button" disabled={!hasMemory || interviewPhase === "permission" || interviewPhase === "listening" || interviewPhase === "processing"} onClick={() => { pauseInterview(); setTalkSaved(true); setStep(3); }}>Save &amp; Continue</button>
-          <p className="detail-note">Saved for this session only. Return anytime during this session to add more.</p>
+          <button className="primary-button" type="button" disabled={!hasMemory || busy || interviewPhase === "permission" || interviewPhase === "listening" || interviewPhase === "processing"} onClick={() => {
+            pauseInterview();
+            const sessionId = activeSessionRef.current ?? newMemoryId("session"); activeSessionRef.current = sessionId;
+            void run(async () => {
+              await commitMemory((state) => {
+                let next = saveInterviewSession(state, sessionId, new Date().toISOString(), "paused");
+                for (const pending of memoryProposals) next = retainPendingFact(next, pending, new Date().toISOString());
+                return next;
+              });
+              setTalkSaved(true); setStep(3);
+            });
+          }}>Save &amp; Continue</button>
+          <p className="detail-note">{hasDesktopStorage() ? "Approved memory and saved proposals remain available after restart. Audio and transcripts do not." : "Browser preview keeps memory only until this tab closes."}</p>
         </>}
         {step === 3 && <>
           <div className="detail-heading"><span className="eyebrow">03 / THE OPPORTUNITY</span><h2>What are you preparing for?</h2></div>
-          <label className="field-label">Paste job description<textarea value={opportunityInput} maxLength={15000} rows={6} onChange={(event) => { setOpportunityInput(event.target.value); setConfirmedOpportunity(null); }}/></label>
+          <label className="field-label">Paste job description<textarea value={opportunityInput} maxLength={15000} rows={6} onChange={(event) => { setOpportunityInput(event.target.value); setOpportunityPdfName(""); setConfirmedOpportunity(null); }}/></label>
           <div className="inline-actions"><button type="button" className="primary-button" disabled={busy || opportunityInput.trim().length < 30} onClick={() => void run(async () => { const result = await post<{ opportunity: Opportunity }>("/extract-opportunity", { text: opportunityInput }); setOpportunityDraft(result.opportunity); setConfirmedOpportunity(null); })}>{busy ? "Reading…" : "Identify role"}</button><label className="file-button">Or choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "opportunity")} disabled={busy}/></label></div>
           {opportunityDraft && <div className="opportunity-review"><p className="detail-note">{opportunityDraft.confidence === "uncertain" ? "Company uncertain — confirm or correct it." : "Review and confirm the match."}</p>
             <label className="field-label">Company<input value={opportunityDraft.company} maxLength={100} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, company: event.target.value, confidence: "uncertain" })}/></label>
             <label className="field-label">Role<input value={opportunityDraft.role} maxLength={100} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, role: event.target.value })}/></label>
-            <button type="button" className="primary-button" disabled={!opportunityDraft.company.trim() || !opportunityDraft.role.trim()} onClick={() => { setConfirmedOpportunity(opportunityDraft); setStep(4); }}>Confirm opportunity</button>
+            <button type="button" className="primary-button" disabled={!opportunityDraft.company.trim() || !opportunityDraft.role.trim() || busy} onClick={() => void run(async () => {
+              const description = opportunityInput.trim() || `PDF: ${opportunityPdfName}`;
+              await commitMemory((state) => confirmOpportunity(state, opportunityDraft, description, new Date().toISOString()));
+              setConfirmedOpportunity(opportunityDraft); setStep(4);
+            })}>Confirm opportunity</button>
           </div>}
+          {confirmedOpportunity && <button type="button" className="text-button" onClick={() => void run(async () => {
+            const current = memoryRef.current.opportunities.at(-1);
+            if (!current) return;
+            const next = await commitMemory((state) => removeOpportunity(state, current.id));
+            const previous = next.opportunities.at(-1);
+            setConfirmedOpportunity(previous ? { company: previous.company, role: previous.role, confidence: "clear" } : null);
+            setOpportunityInput(previous?.description.startsWith("PDF: ") ? "" : previous?.description ?? "");
+            setOpportunityPdfName(previous?.description.startsWith("PDF: ") ? previous.description.slice(5) : "");
+          })}>Remove saved opportunity</button>}
           <p className="detail-note">Company research and interviewer discovery are future features.</p>
         </>}
         {step === 4 && <>
@@ -313,7 +416,17 @@ export function JourneyApp() {
         </>}
       </section>
       <div className="synthetic-entry"><span>Synthetic test mode</span><button className="text-button" type="button" onClick={() => setPractice("synthetic")}>Open text demo ↗</button></div>
-      <footer className="page-footer"><span>VantSide Meta</span><span>Practice only · Session data is cleared on restart</span></footer>
+      <footer className="page-footer"><span>VantSide Meta</span><span>Practice only · {hasDesktopStorage() ? "Approved memory stays on this device" : "Browser preview is session-only"}</span><button type="button" className="text-button" onClick={() => {
+        if (!window.confirm("Delete all saved Career Memory, proposals, sessions, and opportunities from this device?")) return;
+        cancelActive();
+        void run(async () => {
+          await commitMemory(() => emptyMemoryState());
+          activeSessionRef.current = null; setApproved([]); setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null);
+          setMemoryProposals([]); setConversation([]); setInterviewQuestion(""); setInterviewSummary(""); setInterviewPhase("stopped");
+          setAnswer(""); setPracticeConsent(false); setTalkSaved(false); setConfirmedOpportunity(null); setOpportunityDraft(null);
+          setOpportunityInput(""); setOpportunityPdfName(""); setStep(1);
+        });
+      }}>Delete saved data</button></footer>
     </div>
   </main>;
 }

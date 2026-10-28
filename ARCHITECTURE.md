@@ -1,4 +1,4 @@
-> Product direction (October 27): VantSide's core is resume-derived professional identity → repeatable adaptive foundational voice interviews → approved, persistent Career Memory → job-specific Opportunity Memory → round-specific Interview Memory and visual practice cues. Persistence is a product goal; the current voice interview is turn-based and session-only. Synthetic cue tests are engineering fixtures, not the intended product.
+> Product direction (October 27): VantSide's core is resume-derived professional identity → repeatable adaptive foundational voice interviews → approved, persistent Career Memory → job-specific Opportunity Memory → round-specific Interview Memory and visual practice cues. Approved memory now persists locally in the desktop build; the current voice interview remains turn-based and its raw answers remain session-only. Synthetic cue tests are engineering fixtures, not the intended product.
 
 # VantSide Meta — Technical Architecture
 
@@ -10,7 +10,7 @@
 - Hosted hackathon backend target: a separate HTTPS service with real user/session authentication, durable quotas, and a spending cap. The current loopback service must not be publicly deployed. The shared Meta key remains on the server, never in static assets, the Tauri binary, CI artifacts, or client-side environment variables.
 - Primary inference: Meta Model API, Muse Spark 1.3 for textual/multimodal interpretation and structured cue construction.
 - Voice: Muse Voice Transcribe 1.0 using the documented turn-based `POST /asr/transcribe` path. The Windows WebView captures mono audio only after a user action, encodes 16 kHz PCM WAV in memory, and sends a completed answer through the local backend. The documented realtime WebSocket path remains a later latency improvement.
-- Persistence: session state stays in memory. No raw audio or transcript persistence is implemented or permitted by default. No database unless a demonstrated need exists.
+- Persistence: the Tauri process writes reviewed Career Memory to an app-local SQLite file; the static frontend calls narrow load/save commands. The loopback Meta service does not own the database. Raw audio, full transcripts, the current question, and unapproved model summaries stay in memory.
 - Optional after MVP: Baseten Muse Spark Open for comparison; do not require it for startup or demo.
 
 Official references (verify updated SDK shapes and model availability at implementation time):
@@ -31,7 +31,7 @@ Official references (verify updated SDK shapes and model availability at impleme
 - **Promotion:** speech/document extraction proposes facts; it does not silently promote them. Approval and provenance are required before reuse in grounded visual cues.
 - **Resume-first identity:** Muse Spark now proposes profession, seniority, and a career overview from the PDF for review alongside projects and facts. Word support and live accuracy verification remain future work.
 - **Adaptive voice:** after each answer, select a meaningful follow-up; support stopping, returning, and progressively deepening Career Memory.
-- **Durability:** current session-only storage is insufficient for the intended product. Evaluate secure local persistence for the hackathon and Supabase for future cross-device sync. Never persist raw audio by default; give users review/edit/delete controls and explicit consent for saved summaries.
+- **Durability:** approved memory and confirmed opportunities now survive desktop restarts through local SQLite. Optional summaries still require explicit approval and a retention decision before use. No raw audio or full transcript is stored.
 - **API security:** current loopback-only backend must not be made public with a shared key. Production hosting requires authentication, durable quotas and spending protections.
 
 ## 3. Logical data flow
@@ -49,7 +49,7 @@ CURRENT FOUR-STEP PATH (desktop live Meta behavior not yet verified)
 2 Let's Talk: approved resume -> Muse Spark opening question -> microphone answer
    -> completed 16 kHz WAV -> local backend -> Muse Voice Transcribe final transcript
    -> user transcript review -> Muse Spark follow-up + source-quoted fact proposals
-   -> explicit fact approval -> editable Career Memory for this app session
+   -> explicit fact approval -> editable local Career Memory
    (typed answer follows the same Muse Spark turn path)
 3 The Opportunity: pasted/uploaded job description -> proposed company -> user confirmation
    -> opportunity context (public research and interviewer suggestions are future work)
@@ -61,7 +61,7 @@ Explicit microphone start -> backend WebSocket bridge -> Meta realtime PCM frame
    -> partial transcript display -> finalized turn only triggers Muse Spark
 ```
 
-Do not gate progression on interview duration. A short first conversation can establish a useful starter memory; later continuation should use approved facts and an opt-in summary, never default long-term raw audio or transcript retention. Company and interviewer research is optional and cannot silently promote a suggested identity to verified fact.
+Do not gate progression on interview duration. A short first conversation can establish a useful starter memory. After restart, a new foundational session uses approved facts; exact question/transcript continuity is not offered because those remain ephemeral. Optional cross-session summaries still need a reviewed retention policy. Company and interviewer research is optional and cannot silently promote a suggested identity to verified fact.
 
 ## 4. Data contracts (initial proposal)
 ```ts
@@ -122,7 +122,7 @@ In the current four-step flow, a resume upload produces *proposed* facts only; u
 - Do not emit tokens in logs, telemetry, error messages, demos or Git commits.
 - Validate types, MIME, and upload sizes. Strip or minimize document content submitted to model APIs; use shareable synthetic sample data for public demos.
 - Never place personal career memory, identifiable interviewer documents, raw audio, or transcripts in the public repo.
-- Keep raw audio and working transcripts in active-session memory by default. A resumed session across launches needs separately designed, opt-in summaries or approved memory persistence with a clear retention and deletion policy; do not treat raw transcript storage as the shortcut.
+- Keep raw audio and working transcripts in active-session memory by default. Approved facts persist locally; exact conversation resumption across launches would need a separately reviewed, opt-in summary with a clear retention and deletion policy. Do not treat raw transcript storage as the shortcut.
 - Explicitly disclose third-party AI processing and account billing mode in development docs.
 - Important: Meta dashboard states free-credit content may be used for product improvement. Confirm current account privacy/billing terms before sending private career or employer material. Avoid sensitive materials during hackathon testing.
 - Default to consensual mock interviewing; no stealth capture or support for violating interview rules.
@@ -143,7 +143,7 @@ In the current four-step flow, a resume upload produces *proposed* facts only; u
 - Zod validates the generated shape and enforces that cited fact IDs belong to the selected synthetic project. A no-match response cannot cite facts.
 - Upstream errors, malformed JSON, and schema failures return a generic user-facing message. Upstream response bodies and keys are not logged or relayed.
 - The opening ribbon and perspective dot field are newly authored SVG/CSS. Reduced-motion preference skips the timed intro and disables motion.
-- The current UI includes inline PDF proposals, user approval, session Career Memory, opportunity confirmation, personalized text cues, and a turn-based foundational voice interview. Voice answers are captured and discarded in memory; no audio is stored. Cross-restart persistence and streaming voice remain future work.
+- The current UI includes inline PDF proposals, user approval, local Career Memory, opportunity confirmation, personalized text cues, and a turn-based foundational voice interview. Voice answers are captured and discarded in memory; no audio is stored. The SQLite model supports interview rounds, though the UI does not yet create them. Streaming voice remains future work.
 - Lint, TypeScript, and a Webpack production build passed in Milestone 1. The static desktop build and mocked cue contract have since passed; a packaged Windows runtime and live desktop-to-Meta request remain unverified.
 
 ## 10. Definition of done
@@ -189,21 +189,27 @@ Platform references: [Tauri Next.js guide](https://v2.tauri.app/start/frontend/n
 
 1. Protect the shared-key endpoint before public hosting, and prove a text-question cue through the packaged Windows x64 Tauri shell. The present service remains loopback-only.
 2. Verify Meta Voice Transcribe's official stream protocol and prove one microphone → final transcript → grounded cue path on Windows.
-3. Verify the existing four-step text path with live desktop Meta calls, then make the foundational conversation adaptive and voice-driven. Gate each step on validated output and label incomplete features honestly. Public company/interviewer research and cross-launch resumption are optional later work.
+3. Verify the existing four-step text path with live desktop Meta calls, including close/reopen of approved Career Memory. Gate each step on validated output and label incomplete features honestly. Public company/interviewer research and exact mid-conversation resumption are optional later work.
 4. Test permission denial, stop/recovery, source grounding, and real spoken follow-ups on the Windows demo machine. Keep the existing text input as an explicitly labeled fallback.
 5. Run the three-target CI matrix and manually test macOS Intel and Apple Silicon where devices are available. Do not claim runtime support from CI artifacts alone; defer separate floating windows, BYOK, and additional providers.
 
 ## 16. Structured Career Memory foundation and storage decision
 
-`backend/career-memory.ts` defines the versioned data contract and pure operations for global Career Memory, evidence, pending proposals, foundational sessions, opportunities, and interview rounds. This is a backend foundation only; the current four-step UI still uses its existing in-memory session shape. No new route or database writes occur in this milestone.
+`backend/career-memory.ts` remains the versioned domain contract and pure operations for global Career Memory, evidence, pending proposals, foundational sessions, opportunities, and interview rounds. `src/lib/journey-memory.ts` maps the existing four-step UI's approved data into that contract; `src/lib/career-memory-storage.ts` validates it before invoking two Tauri commands. The local Meta backend and voice transport are unchanged.
 
 - **Global:** approved professional identity, projects, and career facts cite short evidence excerpts. Resume and user-material references point to registered material metadata; interview references point to a known session. When a caller registers evidence, it must provide the original content so the excerpt can be checked without storing that content. The model's semantic interpretation still needs human review; quote matching alone does not prove a claim.
 - **Pending:** model output enters `proposals` and is ineligible as an approved fact. Only an explicit `approveProposal` call moves it into Career Memory. Corrections preserve the original approval time, require valid source IDs, and record a correction time. Duplicate text within a project adds its new evidence to the existing fact. Deleting evidence removes its citation and drops a fact or proposal when no source remains, preventing orphaned claims.
 - **Continued interviews:** each foundational session has its own status and optional user-reviewed summary. New approved facts from any session join the global Career Memory and can be reused for later opportunities. A summary requires an approval timestamp; neither this schema nor the existing UI retains raw audio or full transcripts.
 - **Scoped context:** confirmed jobs live in `opportunities`; each `round` belongs to one opportunity. Deleting an opportunity removes its rounds without deleting global career facts. Opportunity and round summaries stay outside global Career Memory unless a separately sourced proposal is reviewed and approved.
 
-**Persistence choice:** For a Windows-first desktop MVP, prefer a local app-data store after reviewing encryption and backup behavior. SQLite is a practical structured store, but ordinary SQLite is not encrypted by default. If private career data is written to disk, select an encryption mechanism and keep its key in OS-backed credential storage, define migration from schema version 1, and test lock/unlock, corruption recovery, backup copies, and complete deletion. The app should show exactly which approved facts and optional summaries survive a restart. Raw audio and working transcripts stay ephemeral; summaries require opt-in review and a defined retention period before storage ships.
+**Desktop storage:** `src-tauri/src/career_store.rs` uses bundled SQLite through `rusqlite`, not a Node server or a WebView-wide SQL capability. `app.path().app_local_data_dir()` resolves the application-specific directory; on Windows this is normally `%LOCALAPPDATA%\com.vantside.meta\career-memory.sqlite3`. The version-1 migration creates separate identity, material, evidence, project, fact, proposal, session, opportunity, and round tables with source link tables and foreign keys. A save validates the domain contract in TypeScript, writes a complete small snapshot in one immediate SQLite transaction, and advances a revision to reject stale competing writes. Repeated saves replace records without duplicates. A failed insert rolls back to the previous snapshot. A malformed load returns an error and blocks further UI writes rather than silently resetting memory. Browser preview stays session-only.
+
+The packaged build still uses static Next.js export. On this Windows checkout, reused `.next` output and parallel page generation caused `EPERM` failures, so the build script removes only that ignored output before compiling and Next uses one build/page worker. The normal `tauri build --no-bundle` path then completed; installer bundling and a live close/reopen run remain unverified.
+
+**Retention:** Approved resume metadata, professional identity, short source excerpts, approved facts, explicitly saved pending proposals, foundational session status, pasted job text, confirmed company/role, and any future explicitly approved summaries may be stored. Resume PDF bytes, job-description PDF bytes, raw audio, full transcripts, the current question, and unapproved model summaries are not stored. PDF job input currently retains a filename and confirmed company/role rather than the full PDF text. Save & Continue deliberately retains visible pending proposals; unreviewed proposals from an unfinished conversation remain only in memory. The UI can remove a project, the current opportunity, or all saved records. The database supports round relationships, but no round UI writes them yet.
+
+**Data-at-rest threat model:** SQLite is plaintext. Windows file access inherits the current user's profile ACL; macOS/Linux app data directory and database are tightened to `0700` and `0600`. This helps against other ordinary local accounts but does not protect against malware or an administrator in the same account, filesystem snapshots, or backups. SQLite `secure_delete=ON` reduces residual content in ordinary deleted tables, but does not guarantee forensic erasure of journal copies or backups. No encryption or hardcoded key is claimed. Before storing sensitive real resumes at scale, evaluate SQLCipher or encrypted application records with a key held by the OS credential store, then test key loss, recovery, migration, and deletion. Current app storage should be treated as locally private, not cryptographically secret.
 
 Supabase is a later option for account-based sync across devices. It would require user authentication, per-user row-level access rules on every memory/source/opportunity/round table, encrypted transport, server-side authorization checks, export and deletion flows, and a clear policy for backups and retained copies. It adds a cloud processor and more sensitive data flow; do not provision it for this milestone. Local-only storage reduces that exposure but still needs encryption, access control on the device, and explicit deletion behavior.
 
-**Before wiring storage:** map the current session-only `src/lib/session-schema.ts` proposals to the versioned contract without silently approving them; add user review for short evidence excerpts and any saved summary; decide a retention period and deletion semantics for app data and backups; then implement an adapter with migration and read/write tests. Until then, memory does not persist across launches.
+**Remaining limits:** Model-proposed PDF source excerpts are shown for user review, but the app still lacks deterministic text extraction to verify each quote against PDF bytes. Exact mid-conversation resumption requires a separately approved summary flow; saving full transcripts as a shortcut is out of scope. Windows packaged persistence needs a manual close/reopen check on the target machine even after build and migration tests pass. The next storage refinement is reviewed encryption and backup/deletion behavior, before any cross-device synchronization.
