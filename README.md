@@ -1,44 +1,54 @@
 # VantSide Meta
 
-**A live visual memory interface for interview practice.**
+**Your experience. Ready when you need it.**
 
-VantSide Meta is a new, standalone Indie Developer entry for the Meta Global AI Developer Hackathon, October 26–November 4, 2026. The Milestone 1 demo accepts simulated interviewer questions as text and surfaces compact cues from clearly labeled synthetic examples. Voice capture and personal career materials are not implemented yet.
+VantSide turns a resume and ongoing voice conversations into a growing, personal Career Memory. It helps people prepare for specific opportunities and recall their own experience through clear, timely visual cues.
 
-## The experience
-1. Type or choose a simulated interviewer question.
-2. Muse Spark matches it to a small set of clearly labeled synthetic examples.
-3. Review a concise visual cue and expand its cited synthetic source notes.
+Built as a new desktop prototype for the **Meta Global AI Developer Hackathon (October 26–November 4, 2026)**.
 
-## The one thing the demo must prove
-An interview question causes a relevant, source-backed cue to appear, and a follow-up changes the cue appropriately. Milestone 1 exercises this loop with text input and synthetic examples; voice integration remains future work.
+## How it works
 
-## Hackathon boundary
-- This is a **fresh implementation**, not a fork or repackaging of the pre-hackathon VantSide codebase.
-- Pre-existing VantSide concepts and visual references are disclosed. No pre-hackathon source files, custom assets, or configuration are imported into this submission.
-- The submitted repository contains only work created during the hackathon (plus clearly identified third-party dependencies and permitted datasets).
-- The three-minute demo opens by identifying the pre-existing concept and the new implementation.
-- Public repo: keep API keys, private resumes, transcripts, and confidential work artifacts out of Git.
-- Hackathon submission due November 4, 2026, 9:00 PM ET / 6:00 PM PT.
+1. **Your Resume** — Add a PDF or Word resume. VantSide identifies your professional background.
+2. **Let's Talk** — Have a natural, profession-aware voice interview. Return whenever you like to add more depth to your Career Memory.
+3. **The Opportunity** — Add a job description. VantSide connects the role to your experience and asks relevant follow-up questions.
+4. **Your Interview** — Practice for each round with contextual visual reminders. What you learn can strengthen future preparation.
 
-## Documentation
-- [PRODUCT.md](PRODUCT.md) — scope, users, workflow, acceptance criteria
-- [DESIGN.md](DESIGN.md) — visual system and interaction requirements
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Meta AI services, data flow, security, testing
-- [AGENTS.md](AGENTS.md) — instructions for Codex and other coding agents
+Career Memory carries forward between opportunities. Job-specific information stays with the relevant opportunity. The user reviews proposed career facts before they become approved memory.
 
-## Stack
-Next.js App Router, React, TypeScript, Tailwind CSS, Zod, and the Meta Model API using Muse Spark 1.3. The cue route runs server-side and reads `MODEL_API_KEY`, `META_API_BASE_URL`, and `META_MODEL` from the environment. Voice transcription is not included in Milestone 1.
+## What we're building for the hackathon
 
-## Local setup
-1. Use Node.js 20.9 or newer.
-2. Install dependencies with `npm install`.
-3. Copy `.env.example` to `.env.local` and set the Meta API variables.
-4. Run `npm run dev` and open `http://localhost:3000`.
+A new Tauri 2 desktop experience using Meta's models for resume understanding, adaptive voice transcription and reasoning, and evidence-grounded visual cues. **The live build is still evolving; not every part of the experience above is implemented.** Earlier text and sample-data experiments are development tests, not the product.
 
-Run `npm run lint`, `npm run typecheck`, and `npm run build` before sharing changes. Never put keys in client-side code or commit `.env.local`.
+- **Platforms:** Windows x64 first; macOS Intel and Apple Silicon build targets.
+- **AI:** Meta Model API, including Muse Spark and Muse Voice Transcribe.
+- **Experience:** Practice sessions only, with clear microphone controls and no covert interview assistance.
+- **Future direction:** Open-source, provider-independent BYOK (bring your own key).
 
-## Credit and billing safety
-The developer account shows $150 in promotional credits, but a payment method is required to make Model API calls. Do not assume notifications are hard spending limits. Confirm actual balance, account controls, and billing behavior before testing live calls.
+## Run locally
 
-## License
-Follow the license selected on the new GitHub repository; don't import the original app's code or assets as a shortcut.
+Requires Node.js and the Tauri 2 toolchain for desktop development.
+
+```powershell
+npm install
+npm run backend:dev
+```
+
+In a second terminal:
+
+```powershell
+npm run tauri -- dev
+```
+
+Copy `.env.example` to `.env.local` and configure your own API credentials first. Never commit `.env.local`. The current backend is local to your machine; it is **not** a secured public API service.
+
+## Project documentation
+
+- [PRODUCT.md](PRODUCT.md) — product journey and priorities
+- [DESIGN.md](DESIGN.md) — interface and motion
+- [ARCHITECTURE.md](ARCHITECTURE.md) — models, services, memory architecture
+- [GUARDRAILS.md](GUARDRAILS.md) — consent, evidence, and interview boundaries
+- [AGENTS.md](AGENTS.md) — development instructions
+
+## Hackathon disclosure
+
+The VantSide concept predates the event. This repository contains a newly authored hackathon implementation, not the original application's code. The final demo will distinguish the new work from the earlier concept. Submission deadline: November 4, 2026, 9 PM Eastern.
