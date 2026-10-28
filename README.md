@@ -24,6 +24,14 @@ A new Tauri 2 desktop experience using Meta's models for resume understanding, a
 - **Experience:** Practice sessions only, with clear microphone controls and no covert interview assistance.
 - **Future direction:** Open-source, provider-independent BYOK (bring your own key).
 
+## Responsible use
+
+VantSide is for interview preparation and practice—not cheating. It helps people recall and explain their own verified professional experience. It does not secretly assist during real employer interviews, answer coding challenges or legal or medical competency assessments, or complete evaluations on anyone's behalf.
+
+Microphone capture requires explicit consent and visible controls. Career facts must be grounded in user-approved information. These boundaries apply to the activity, not the profession: engineers, legal professionals, and healthcare workers can all use VantSide for legitimate practice.
+
+See [GUARDRAILS.md](GUARDRAILS.md) for the full responsible-use requirements.
+
 ## Run locally
 
 Requires Node.js and the Tauri 2 toolchain for desktop development.
