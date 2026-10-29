@@ -158,6 +158,18 @@ export function emptyMemoryState(): MemoryState {
 
 function checked(state: MemoryState): MemoryState { return memoryStateSchema.parse(state); }
 function normalize(text: string): string { return text.trim().replace(/\s+/g, " ").toLocaleLowerCase(); }
+function supportedNumbers(text: string, sourceIds: string[], state: MemoryState): boolean {
+  const evidence = state.career.sources.filter((source) => sourceIds.includes(source.id)).map((source) => source.excerpt).join(" ");
+  return (text.match(/\d+(?:[.,]\d+)*/g) ?? []).every((number) => evidence.includes(number));
+}
+
+function detachFactAlignment(state: MemoryState, factId: string): MemoryState {
+  return refreshOpportunityAlignment(checked({ ...state, opportunities: state.opportunities.map((opportunity) => {
+    if (!opportunity.alignment) return opportunity;
+    return { ...opportunity, alignment: { ...opportunity.alignment,
+      strengths: opportunity.alignment.strengths.filter((item) => item.factId !== factId) } };
+  }) }));
+}
 
 export function addMaterial(state: MemoryState, material: CareerMaterial): MemoryState {
   checked(state);
@@ -194,11 +206,37 @@ export function addProposal(state: MemoryState, proposal: ProposedMemoryUpdate):
   return checked({ ...state, proposals: [...state.proposals, valid] });
 }
 
+export function dismissProposal(state: MemoryState, proposalId: string): MemoryState {
+  checked(state);
+  const proposals = state.proposals.filter((proposal) => proposal.id !== proposalId);
+  const retainedSources = new Set([
+    ...(state.career.identity?.sourceIds ?? []),
+    ...state.career.facts.flatMap((fact) => fact.sourceIds),
+    ...proposals.flatMap((proposal) => proposal.sourceIds),
+  ]);
+  return checked({ ...state, proposals, career: { ...state.career,
+    sources: state.career.sources.filter((source) => retainedSources.has(source.id)),
+  } });
+}
+
+export function refreshOpportunityAlignment(state: MemoryState): MemoryState {
+  const facts = new Set(state.career.facts.map((fact) => fact.id));
+  return checked({ ...state, opportunities: state.opportunities.map((opportunity) => {
+    if (!opportunity.alignment) return opportunity;
+    const requirementIds = new Set(opportunity.requirements?.map((item) => item.id) ?? []);
+    const strengths = opportunity.alignment.strengths.filter((item) => facts.has(item.factId) && requirementIds.has(item.requirementId));
+    const supported = new Set(strengths.map((item) => item.requirementId));
+    return { ...opportunity, alignment: { strengths,
+      needsEvidence: [...requirementIds].filter((id) => !supported.has(id)) } };
+  }) });
+}
+
 // An explicit caller action is the only path from a pending proposal to an approved fact.
 export function approveProposal(state: MemoryState, proposalId: string, approvedAt: string): MemoryState {
   checked(state);
   const proposal = state.proposals.find((item) => item.id === proposalId);
   if (!proposal) throw new Error("Proposal not found.");
+  if (!supportedNumbers(proposal.text, proposal.sourceIds, state)) throw new Error("Numerical claims need supporting evidence.");
   const existingProject = state.career.projects.find((project) => project.id === proposal.projectId);
   if (existingProject && normalize(existingProject.title) !== normalize(proposal.projectTitle))
     throw new Error("Proposal project title conflicts with an approved project.");
@@ -217,30 +255,35 @@ export function approveProposal(state: MemoryState, proposalId: string, approved
 export function correctFact(state: MemoryState, factId: string, text: string, sourceIdsForCorrection: string[], correctedAt: string): MemoryState {
   checked(state);
   if (!state.career.facts.some((fact) => fact.id === factId)) throw new Error("Fact not found.");
+  if (!supportedNumbers(text, sourceIdsForCorrection, state)) throw new Error("Numerical claims need supporting evidence.");
   const facts = state.career.facts.map((fact) => fact.id === factId ? approvedCareerFactSchema.parse({
     ...fact, text, sourceIds: sourceIdsForCorrection, correctedAt,
   }) : fact);
   if (facts.some((fact) => fact.id !== factId && fact.projectId === facts.find((item) => item.id === factId)?.projectId &&
     normalize(fact.text) === normalize(text))) throw new Error("Correction duplicates an approved fact.");
-  return checked({ ...state, career: { ...state.career, facts } });
+  return detachFactAlignment(checked({ ...state, career: { ...state.career, facts } }), factId);
 }
 
 export function deleteFact(state: MemoryState, factId: string): MemoryState {
   checked(state);
-  return checked({ ...state, career: { ...state.career, facts: state.career.facts.filter((fact) => fact.id !== factId) } });
+  const facts = state.career.facts.filter((fact) => fact.id !== factId);
+  const usedSources = new Set([...(state.career.identity?.sourceIds ?? []), ...facts.flatMap((fact) => fact.sourceIds),
+    ...state.proposals.flatMap((proposal) => proposal.sourceIds)]);
+  return refreshOpportunityAlignment(checked({ ...state, career: { ...state.career, facts,
+    sources: state.career.sources.filter((source) => usedSources.has(source.id)) } }));
 }
 
 export function deleteEvidence(state: MemoryState, sourceId: string): MemoryState {
   checked(state);
   const remaining = (ids: string[]) => ids.filter((id) => id !== sourceId);
   const identity = state.career.identity;
-  return checked({ ...state, career: { ...state.career,
+  return refreshOpportunityAlignment(checked({ ...state, career: { ...state.career,
     sources: state.career.sources.filter((source) => source.id !== sourceId),
     identity: identity && remaining(identity.sourceIds).length ? { ...identity, sourceIds: remaining(identity.sourceIds) } : null,
     facts: state.career.facts.filter((fact) => remaining(fact.sourceIds).length).map((fact) => ({ ...fact, sourceIds: remaining(fact.sourceIds) })),
   }, proposals: state.proposals.filter((proposal) => remaining(proposal.sourceIds).length).map((proposal) => ({
     ...proposal, sourceIds: remaining(proposal.sourceIds),
-  })) });
+  })) }));
 }
 
 export function deleteMaterial(state: MemoryState, materialId: string): MemoryState {
@@ -262,8 +305,8 @@ export function deleteSession(state: MemoryState, sessionId: string): MemoryStat
 
 export function deleteOpportunity(state: MemoryState, opportunityId: string): MemoryState {
   checked(state);
-  const sourceIds = state.proposals.filter((proposal) => proposal.opportunityId === opportunityId).flatMap((proposal) => proposal.sourceIds);
-  const withoutPendingEvidence = sourceIds.reduce(deleteEvidence, state);
+  const proposalIds = state.proposals.filter((proposal) => proposal.opportunityId === opportunityId).map((proposal) => proposal.id);
+  const withoutPendingEvidence = proposalIds.reduce(dismissProposal, state);
   return checked({ ...withoutPendingEvidence, opportunities: withoutPendingEvidence.opportunities.filter((item) => item.id !== opportunityId),
     rounds: withoutPendingEvidence.rounds.filter((round) => round.opportunityId !== opportunityId),
     proposals: withoutPendingEvidence.proposals.filter((proposal) => proposal.opportunityId !== opportunityId) });

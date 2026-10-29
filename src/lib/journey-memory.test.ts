@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
-import { approveInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity,
+import { approveInterviewFact, approveManualInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity,
   pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume, retainPendingFact, saveInterviewSession } from "./journey-memory";
 
 test("removing a resume preserves independently supported interview facts", () => {
@@ -73,4 +73,29 @@ test("only explicitly reviewed summaries can be retained", () => {
   const saved = saveInterviewSession(emptyMemoryState(), "session-1", now, "paused");
   assert.equal(saved.sessions[0].reviewedSummary, undefined);
   assert.throws(() => memoryStateSchema.parse({ ...saved, sessions: [{ ...saved.sessions[0], reviewedSummary: "A raw unapproved summary" }] }));
+});
+
+test("manual additions require an actual answer excerpt and retain their interview source", () => {
+  const approved = approveManualInterviewFact(emptyMemoryState(), "API platform", "Designed onboarding flows",
+    "I designed onboarding flows for API developers", "session-1", now);
+  assert.equal(approved.career.facts.length, 1);
+  const sourceId = approved.career.facts[0].sourceIds[0];
+  assert.equal(approved.career.sources.find((source) => source.id === sourceId)?.excerpt, "Designed onboarding flows");
+  assert.equal(approved.career.sources.find((source) => source.id === sourceId)?.originId, "session-1");
+  assert.throws(() => approveManualInterviewFact(emptyMemoryState(), "API platform", "Invented 70% lift",
+    "I designed onboarding flows for API developers", "session-1", now));
+});
+
+test("removing one opportunity deletes its pending proposal without touching global facts or another job", () => {
+  let state = approveResumeReview(emptyMemoryState(), review, "resume.pdf", now);
+  state = confirmOpportunity(state, { company: "Company A", role: "Designer", confidence: "clear" }, "Design onboarding", now);
+  state = confirmOpportunity(state, { company: "Company B", role: "Researcher", confidence: "clear" }, "Research product needs", now);
+  const [first, second] = state.opportunities;
+  state = retainPendingFact(state, { id: "job-proposal", title: "Onboarding", text: "Interviewed product users",
+    source: "Interviewed product users", answer: "I interviewed product users", sessionId: "session-job", opportunityId: first.id }, now);
+  const removed = removeOpportunity(state, first.id);
+  assert.deepEqual(removed.opportunities.map((item) => item.id), [second.id]);
+  assert.equal(removed.proposals.length, 0);
+  assert.equal(removed.career.facts.length, 1);
+  assert.equal(removed.career.sources.some((source) => source.originId === "session-job"), false);
 });

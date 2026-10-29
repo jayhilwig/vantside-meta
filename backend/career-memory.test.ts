@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { addEvidence, addMaterial, addProposal, approveIdentity, approveProposal, correctFact, deleteEvidence, deleteFact,
-  deleteMaterial, deleteOpportunity, deleteSession, emptyMemoryState, memoryStateSchema } from "./career-memory";
+  deleteMaterial, deleteOpportunity, deleteSession, dismissProposal, emptyMemoryState, memoryStateSchema, refreshOpportunityAlignment } from "./career-memory";
 
 const time = "2026-10-27T12:00:00.000Z";
 const session = { id: "session-1", status: "paused" as const, startedAt: time };
@@ -26,6 +26,42 @@ test("proposals stay pending until explicit approval and retain source provenanc
   assert.deepEqual(approved.career.facts[0].sourceIds, [source.id]);
   assert.equal(approved.career.facts[0].approvedAt, time);
   assert.deepEqual(pending.career.facts, []);
+});
+
+test("dismissed proposals do not reappear after restart or erase shared approved evidence", () => {
+  const approved = approveProposal(addProposal(withEvidence(), proposal), proposal.id, time);
+  const pending = addProposal(approved, { ...proposal, id: "pending-2", text: "Led onboarding", sourceIds: [source.id] });
+  const dismissed = dismissProposal(pending, "pending-2");
+  const reopened = memoryStateSchema.parse(JSON.parse(JSON.stringify(dismissed)));
+  assert.equal(reopened.proposals.length, 0);
+  assert.equal(reopened.career.facts.length, 1);
+  assert.deepEqual(reopened.career.facts[0].sourceIds, [source.id]);
+  assert.equal(reopened.career.sources.length, 1);
+});
+
+test("unsupported numeric claims cannot be promoted or inserted by correction", () => {
+  const pending = addProposal(withEvidence(), { ...proposal, text: "Raised conversion 40%" });
+  assert.throws(() => approveProposal(pending, proposal.id, time), /Numerical claims/);
+  assert.equal(pending.career.facts.length, 0);
+  const approved = approveProposal(addProposal(withEvidence(), proposal), proposal.id, time);
+  assert.throws(() => correctFact(approved, proposal.id, "Raised conversion 40%", [source.id], time), /Numerical claims/);
+});
+
+test("fact correction and deletion invalidate opportunity strength references", () => {
+  const approved = approveProposal(addProposal(withEvidence(), proposal), proposal.id, time);
+  const job = { id: "job-1", company: "Example", role: "Designer", description: "Design onboarding", confirmedAt: time,
+    requirements: [{ id: "req-1", kind: "required" as const, text: "Design onboarding experiences", sourceExcerpt: "Design onboarding experiences" }],
+    alignment: { strengths: [{ requirementId: "req-1", factId: proposal.id }], needsEvidence: [] } };
+  const linked = memoryStateSchema.parse({ ...approved, opportunities: [job] });
+  const corrected = correctFact(linked, proposal.id, "Led a customer-informed onboarding redesign", [source.id], time);
+  assert.deepEqual(corrected.opportunities[0].alignment?.strengths, []);
+  assert.deepEqual(corrected.opportunities[0].alignment?.needsEvidence, ["req-1"]);
+  const restoredLegacy = refreshOpportunityAlignment(memoryStateSchema.parse(JSON.parse(JSON.stringify({ ...approved,
+    career: { ...approved.career, facts: [] }, opportunities: [job] }))));
+  assert.equal(restoredLegacy.opportunities[0].alignment?.strengths.length, 0);
+  const deleted = deleteFact(linked, proposal.id);
+  assert.equal(deleted.opportunities[0].alignment?.strengths.length, 0);
+  assert.equal(deleted.career.sources.length, 0);
 });
 
 test("corrections need valid evidence and preserve original approval", () => {

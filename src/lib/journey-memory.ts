@@ -1,5 +1,5 @@
-import { addEvidence, addProposal, approveProposal, deleteMaterial, deleteOpportunity,
-  memoryStateSchema, type MemoryState } from "../../backend/career-memory";
+import { addEvidence, addProposal, approveProposal, deleteMaterial, deleteOpportunity, dismissProposal,
+  memoryStateSchema, refreshOpportunityAlignment, type MemoryState } from "../../backend/career-memory";
 import type { CareerProfile, MemoryProject, Opportunity } from "./session-schema";
 import type { OpportunityAnalysis } from "./opportunity-analysis";
 
@@ -92,6 +92,8 @@ export function approveManualInterviewFact(state: MemoryState, title: string, qu
 }
 
 export function removeCareerProject(state: MemoryState, projectId: string): MemoryState {
+  state = state.proposals.filter((proposal) => proposal.projectId === projectId)
+    .reduce((current, proposal) => dismissProposal(current, proposal.id), state);
   const facts = state.career.facts.filter((fact) => fact.projectId !== projectId);
   const stillUsedByFacts = new Set(facts.flatMap((fact) => fact.sourceIds));
   const identitySources = state.career.identity?.sourceIds.filter((id) => stillUsedByFacts.has(id)) ?? [];
@@ -99,7 +101,7 @@ export function removeCareerProject(state: MemoryState, projectId: string): Memo
   const usedSources = new Set([...facts.flatMap((fact) => fact.sourceIds), ...state.proposals.flatMap((item) => item.sourceIds), ...identitySources]);
   const sources = state.career.sources.filter((source) => usedSources.has(source.id));
   const usedMaterials = new Set(sources.filter((source) => source.kind !== "interview").map((source) => source.originId));
-  return refreshOpportunityLinks(memoryStateSchema.parse({ ...state, career: { ...state.career,
+  return refreshOpportunityAlignment(memoryStateSchema.parse({ ...state, career: { ...state.career,
     identity,
     sources,
     materials: state.career.materials.filter((material) => usedMaterials.has(material.id)),
@@ -108,22 +110,11 @@ export function removeCareerProject(state: MemoryState, projectId: string): Memo
   } }));
 }
 
-function refreshOpportunityLinks(state: MemoryState): MemoryState {
-  const liveFacts = new Set(state.career.facts.map((fact) => fact.id));
-  return memoryStateSchema.parse({ ...state, opportunities: state.opportunities.map((opportunity) => {
-    if (!opportunity.alignment) return opportunity;
-    const strengths = opportunity.alignment.strengths.filter((item) => liveFacts.has(item.factId));
-    const needsEvidence = [...new Set([...opportunity.alignment.needsEvidence,
-      ...opportunity.alignment.strengths.filter((item) => !liveFacts.has(item.factId)).map((item) => item.requirementId)])];
-    return { ...opportunity, alignment: { strengths, needsEvidence } };
-  }) });
-}
-
 export function removeResume(state: MemoryState): MemoryState {
   const withoutResume = state.career.materials.filter((material) => material.kind === "resume")
     .reduce((current, material) => deleteMaterial(current, material.id), state);
   const liveProjectIds = new Set(withoutResume.career.facts.map((fact) => fact.projectId));
-  return refreshOpportunityLinks(memoryStateSchema.parse({ ...withoutResume, career: { ...withoutResume.career,
+  return refreshOpportunityAlignment(memoryStateSchema.parse({ ...withoutResume, career: { ...withoutResume.career,
     identity: null,
     projects: withoutResume.career.projects.filter((project) => liveProjectIds.has(project.id)),
   } }));

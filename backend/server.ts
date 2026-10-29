@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { createCue } from "./cue-handler";
+import { retrieveCues } from "./memory-retrieval";
 import { extractOpportunity, extractResume } from "./extraction-handler";
 import { analyzeOpportunity } from "./opportunity-handler";
 import { startInterview, continueInterview } from "./interview-handler";
@@ -40,7 +41,7 @@ const server = createServer(async (request, response) => {
     send(response, 403, { error: "This practice API only accepts the local VantSide app." });
     return;
   }
-  const routes = new Set(["/cue", "/extract-resume", "/extract-opportunity", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe"]);
+  const routes = new Set(["/cue", "/retrieve-cues", "/extract-resume", "/extract-opportunity", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe"]);
   if (request.method === "OPTIONS" && routes.has(request.url ?? "")) {
     response.writeHead(204);
     response.end();
@@ -92,6 +93,7 @@ const server = createServer(async (request, response) => {
       : request.url === "/interview/start" ? await startInterview(body, fetch, controller.signal)
       : request.url === "/interview/turn" ? await continueInterview(body, fetch, controller.signal)
       : request.url === "/interview/transcribe" ? await transcribeAnswer(body, fetch, controller.signal)
+      : request.url === "/retrieve-cues" ? retrieveCues(body)
       : await createCue(body);
     if (!controller.signal.aborted) send(response, result.status, result.body);
   } catch {

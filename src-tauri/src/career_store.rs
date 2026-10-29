@@ -281,8 +281,11 @@ pub async fn load_career_memory(app: tauri::AppHandle) -> Result<Value, String> 
         .map_err(|_| storage_error())?
         .join(FILE_NAME);
     tauri::async_runtime::spawn_blocking(move || {
-        let connection = open_at(&path)?;
-        load_at(&connection).map_err(|_| storage_error())
+        let mut connection = open_at(&path)?;
+        let snapshot = connection.transaction().map_err(|_| storage_error())?;
+        let result = load_at(&snapshot).map_err(|_| storage_error())?;
+        snapshot.commit().map_err(|_| storage_error())?;
+        Ok(result)
     })
     .await
     .map_err(|_| storage_error())?
@@ -318,10 +321,29 @@ mod tests {
         connection.pragma_update(None, "user_version", 1).unwrap();
         connection.execute("INSERT INTO job_opportunities (id, payload) VALUES (?1, ?2)",
             params!["old-job", r#"{"id":"old-job","company":"Example","role":"Designer","description":"Existing job text","confirmedAt":"2026-10-28T00:00:00Z"}"#]).unwrap();
+        connection.execute("INSERT INTO career_materials (id, kind, payload) VALUES (?1, ?2, ?3)",
+            params!["old-resume", "resume", r#"{"id":"old-resume","kind":"resume","label":"Resume","addedAt":"2026-10-28T00:00:00Z"}"#]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO career_projects (id, payload) VALUES (?1, ?2)",
+                params![
+                    "old-project",
+                    r#"{"id":"old-project","title":"Onboarding"}"#
+                ],
+            )
+            .unwrap();
         migrate(&mut connection).unwrap();
         assert_eq!(
             load_at(&connection).unwrap()["state"]["opportunities"][0]["id"],
             "old-job"
+        );
+        assert_eq!(
+            load_at(&connection).unwrap()["state"]["career"]["materials"][0]["id"],
+            "old-resume"
+        );
+        assert_eq!(
+            load_at(&connection).unwrap()["state"]["career"]["projects"][0]["id"],
+            "old-project"
         );
         assert_eq!(
             connection
@@ -388,7 +410,28 @@ mod tests {
                 .len(),
             1
         );
+        let empty = json!({"career":{"version":1,"identity":null,"materials":[],"sources":[],"projects":[],"facts":[]},
+            "sessions":[],"opportunities":[],"rounds":[],"proposals":[]});
+        assert_eq!(save_at(&mut restarted, &empty, 2).unwrap(), 3);
         drop(restarted);
+        let after_start_over = open_at(&path).unwrap();
+        let restored = load_at(&after_start_over).unwrap();
+        for (domain, key) in [
+            ("career", "materials"),
+            ("career", "sources"),
+            ("career", "facts"),
+            ("state", "sessions"),
+            ("state", "opportunities"),
+            ("state", "proposals"),
+        ] {
+            let records = if domain == "career" {
+                &restored["state"]["career"][key]
+            } else {
+                &restored["state"][key]
+            };
+            assert_eq!(records.as_array().unwrap().len(), 0);
+        }
+        drop(after_start_over);
         fs::remove_file(path).unwrap();
     }
 

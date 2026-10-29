@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { emptyMemoryState, memoryStateSchema, type MemoryState } from "../../backend/career-memory";
+import { emptyMemoryState, memoryStateSchema, refreshOpportunityAlignment, type MemoryState } from "../../backend/career-memory";
 
 export type StoredMemory = { state: MemoryState; revision: number | null };
 
@@ -12,7 +12,7 @@ export async function loadCareerMemory(): Promise<StoredMemory> {
   try {
     const stored = await invoke<{ state: unknown; revision: number }>("load_career_memory");
     if (!Number.isSafeInteger(stored.revision) || stored.revision < 0) throw new Error("Invalid storage revision");
-    return { state: memoryStateSchema.parse(stored.state), revision: stored.revision };
+    return { state: refreshOpportunityAlignment(memoryStateSchema.parse(stored.state)), revision: stored.revision };
   } catch {
     throw new Error("Saved Career Memory could not be opened. No data was overwritten. Restart or restore a backup before saving again.");
   }

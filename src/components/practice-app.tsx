@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { careerExamples } from "@/lib/career-examples";
 import type { VisualCue } from "@/lib/cue-schema";
+import type { OpportunityRequirement } from "@/lib/opportunity-analysis";
 import type { MemoryProject } from "@/lib/session-schema";
 
 const suggestedQuestions = [
@@ -97,7 +98,7 @@ export function OpeningSequence({ onFinish, ready = true }: { onFinish: () => vo
   );
 }
 
-export function PracticeApp({ projects, opportunity, onBack }: { projects?: MemoryProject[]; opportunity?: { company: string; role: string }; onBack?: () => void }) {
+export function PracticeApp({ projects, opportunity, onBack }: { projects?: MemoryProject[]; opportunity?: { company: string; role: string; requirements?: OpportunityRequirement[]; preparationQuestions?: string[] }; onBack?: () => void }) {
   const [introVisible, setIntroVisible] = useState(!onBack);
   const [question, setQuestion] = useState("");
   const [activeQuestion, setActiveQuestion] = useState("");
