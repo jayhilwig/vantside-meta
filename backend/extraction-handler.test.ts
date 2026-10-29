@@ -22,10 +22,11 @@ test("resume PDF proposals, opportunity confirmation data, and personal cues sta
     const resumeFetcher: typeof fetch = async (_input, init) => {
       const payload = JSON.parse(String(init?.body));
       assert.equal(payload.messages[1].content[1].file.file_data.startsWith("data:application/pdf;base64,"), true);
-      return Response.json({ choices: [{ message: { content: JSON.stringify({ profile: { profession: "Product designer", seniority: "Senior", careerSummary: "Product designer with launch research experience." }, projects: [{ projectId: "launch", title: "Launch", facts: [{ id: "launch-fact", text: "Led launch research", source: "Led launch research" }] }] }) } }] });
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ profile: { profession: "Product designer", seniority: "Senior Product Designer", senioritySource: "Senior Product Designer", careerSummary: "Product designer with launch research experience." }, projects: [{ projectId: "launch", title: "Launch", facts: [{ id: "launch-fact", text: "Led launch research", source: "Led launch research" }] }] }) } }] });
     };
     const resume = await extractResume({ filename: "resume.pdf", data: pdf }, resumeFetcher);
     assert.equal(resume.status, 200);
+    assert.equal((resume.body as { proposal: { profile: { seniority: string } } }).proposal.profile.seniority, "Senior");
     assert.equal((await extractResume({ filename: "fake.pdf", data: Buffer.from("not a PDF").toString("base64") }, resumeFetcher)).status, 400);
 
     const opportunityFetcher: typeof fetch = async () => Response.json({ choices: [{ message: { content: JSON.stringify({ company: "", role: "Designer", confidence: "uncertain" }) } }] });

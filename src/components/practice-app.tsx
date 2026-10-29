@@ -40,9 +40,9 @@ const openerDots = Array.from({ length: 19 }, (_, column) => {
 export function BrandMark({ small = false }: { small?: boolean }) {
   return (
     <span aria-hidden="true" className={`brand-mark${small ? " brand-mark-small" : ""}`}>
-      <svg viewBox="0 0 36 36" fill="none">
-        <path d="M4 6h8l6 10 6-10h8L18 30 4 6Z" fill="currentColor" />
-        <path d="M18 18 25 30h8L22 11l-4 7Z" fill="#252525" />
+      <svg viewBox="0 0 512 512" fill="none">
+        <path d="M105 128h93l58 122 58-122h93L256 397 105 128Z" fill="currentColor" />
+        <path d="m256 258 70 139h81L304 190l-48 68Z" fill="currentColor" />
       </svg>
     </span>
   );

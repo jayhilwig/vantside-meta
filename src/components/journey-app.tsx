@@ -36,6 +36,7 @@ async function post<T>(route: string, body: object, signal?: AbortSignal): Promi
 export function JourneyApp() {
   const [intro, setIntro] = useState(true);
   const closeIntro = useCallback(() => setIntro(false), []);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [storageFault, setStorageFault] = useState("");
   const memoryRef = useRef<MemoryState>(emptyMemoryState());
@@ -79,6 +80,10 @@ export function JourneyApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [savedNotice, setSavedNotice] = useState(false);
+  const [newProjectId, setNewProjectId] = useState("");
+  const [stepTwoActivated, setStepTwoActivated] = useState(false);
+  const [microphoneLevel, setMicrophoneLevel] = useState(0);
+  const [outputName, setOutputName] = useState("System default");
   const hasMemory = approved.some((project) => project.title.trim() && project.facts.some((fact) => fact.text.trim() && fact.source.trim()));
   const canPractice = hasMemory && !!confirmedOpportunity;
   const prompt = interviewQuestion || "Start the interview to get a question based on your approved resume.";
@@ -91,6 +96,10 @@ export function JourneyApp() {
       const projects = approvedProjects(state);
       const lastResume = state.career.materials.filter((material) => material.kind === "resume").at(-1);
       const lastOpportunity = state.opportunities.at(-1);
+      if (!state.career.materials.length && !state.career.facts.length && !state.opportunities.length) {
+        try { setGuideOpen(window.localStorage.getItem("vantside-guide-seen") !== "1"); }
+        catch { setGuideOpen(true); }
+      }
       setApproved(projects);
       setApprovedProfile(state.career.identity ? {
         profession: state.career.identity.profession, seniority: state.career.identity.seniority,
@@ -156,7 +165,11 @@ export function JourneyApp() {
   }, []);
 
   async function beginInterview() {
-    if (!approvedProfile || !approved.length || !practiceConsent) return;
+    if (!approvedProfile || !approved.length) return;
+    if (!practiceConsent) {
+      if (!window.confirm("Start a practice interview? Only record with everyone’s consent and where recording and AI use are allowed.")) return;
+      setPracticeConsent(true);
+    }
     if (interviewQuestion) { setInterviewPhase("idle"); return; }
     const request = new AbortController(); requestRef.current = request;
     const generation = ++generationRef.current;
@@ -299,7 +312,9 @@ export function JourneyApp() {
       cancelActive(); activeSessionRef.current = null;
       setInterviewPhase("idle"); setInterviewQuestion(""); setInterviewSummary(""); setConversation([]); setAnswer(""); setPracticeConsent(false);
       setApproved(approvedProjects(next)); setApprovedProfile(reviewed.profile);
-      setResumeApproved(true); setStep(2);
+      setResumeApproved(true); setStep(2); setStepTwoActivated(true);
+      window.requestAnimationFrame(() => document.querySelector(".step-detail")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }));
+      window.setTimeout(() => setStepTwoActivated(false), 1100);
     });
   }
 
@@ -313,7 +328,72 @@ export function JourneyApp() {
     activeSessionRef.current = sessionId;
     void run(async () => {
       const next = await commitMemory((state) => approveManualInterviewFact(state, projectTitle.trim(), projectFact.trim(), matched.answer, sessionId, new Date().toISOString()));
-      setApproved(approvedProjects(next)); setProjectTitle(""); setProjectFact(""); setSavedNotice(true);
+      const projects = approvedProjects(next);
+      setNewProjectId(projects.at(-1)?.projectId ?? "");
+      setApproved(projects); setProjectTitle(""); setProjectFact(""); setSavedNotice(true);
+    });
+  }
+
+  function dismissGuide() {
+    try { window.localStorage.setItem("vantside-guide-seen", "1"); } catch { /* Session-only browser storage. */ }
+    setGuideOpen(false);
+  }
+
+  async function testMicrophone() {
+    await run(async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: microphoneId ? { deviceId: { exact: microphoneId } } : true });
+      const context = new AudioContext();
+      let meter: number | undefined;
+      try {
+        const source = context.createMediaStreamSource(stream);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 1024; source.connect(analyser);
+        const samples = new Uint8Array(analyser.fftSize);
+        meter = window.setInterval(() => {
+          analyser.getByteTimeDomainData(samples);
+          const rms = Math.sqrt(samples.reduce((sum, sample) => sum + ((sample - 128) / 128) ** 2, 0) / samples.length);
+          setMicrophoneLevel(Math.min(100, Math.round(rms * 400)));
+        }, 80);
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setMicrophones(devices.filter((device) => device.kind === "audioinput"));
+        setOutputName(devices.find((device) => device.kind === "audiooutput" && device.deviceId === "default")?.label || "System default");
+        setMicrophoneStatus("Microphone test running");
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
+        setMicrophoneStatus("Microphone ready");
+      } finally {
+        if (meter !== undefined) window.clearInterval(meter);
+        stream.getTracks().forEach((track) => track.stop());
+        await context.close();
+      }
+    });
+  }
+
+  function startOver() {
+    if (!window.confirm("Delete all saved Career Memory, proposals, sessions, and opportunities from this device?")) return;
+    cancelActive();
+    void run(async () => {
+      await commitMemory(() => emptyMemoryState());
+      activeSessionRef.current = null; setApproved([]); setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null);
+      setMemoryProposals([]); setConversation([]); setInterviewQuestion(""); setInterviewSummary(""); setInterviewPhase("stopped");
+      setAnswer(""); setPracticeConsent(false); setTalkSaved(false); setConfirmedOpportunity(null); setOpportunityDraft(null);
+      setOpportunityInput(""); setOpportunityPdfName(""); setJobAnalysis(null); setJobAlignment(null); setJobAnswer("");
+      setProjectTitle(""); setProjectFact(""); setSavedNotice(false); setKeyboardMode(false); setMicrophones([]); setMicrophoneId(""); setMicrophoneStatus(""); setStep(1);
+      setNewProjectId(""); setMicrophoneLevel(0);
+    });
+  }
+
+  function removeResumeSelection() {
+    if (resumeApproved && !window.confirm("Remove this resume and facts supported only by it? Independently supported Career Memory will remain.")) return;
+    if (!resumeApproved) {
+      const previous = memoryRef.current.career.materials.filter((material) => material.kind === "resume").at(-1);
+      setResumeName(previous?.label ?? ""); setResumeApproved(Boolean(previous && memoryRef.current.career.identity)); setProposal(null);
+      return;
+    }
+    void run(async () => {
+      const next = await commitMemory(removeResume);
+      cancelActive(); activeSessionRef.current = null;
+      setApproved(approvedProjects(next)); setJobAlignment(next.opportunities.at(-1)?.alignment ?? null);
+      setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null); setStep(1);
     });
   }
 
@@ -328,16 +408,33 @@ export function JourneyApp() {
 
   return <main className="app-shell">
     {intro && <OpeningSequence onFinish={closeIntro} />}
-    <div className="page-wrap">
-      <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span></div></header>
-      <section className="journey-heading"><p className="eyebrow">YOUR PRACTICE ROOM</p><h1>Your story, ready when you are.</h1><p>Four steps. Your experience stays yours.</p></section>
+    {!intro && guideOpen && <div className="guide-backdrop" role="dialog" aria-modal="true" aria-labelledby="guide-title" onKeyDown={(event) => { if (event.key === "Escape") dismissGuide(); }}>
+      <div className="guide-card">
+        <div className="brand-lockup"><BrandMark small /><span>VantSide</span></div>
+        <h2 id="guide-title">Prepare in four steps.</h2>
+        <div className="guide-steps">
+          <div><span>01</span><strong>Your Resume</strong><p>Upload your resume to establish your professional background.</p></div>
+          <div><span>02</span><strong>Let’s Talk</strong><p>Have a conversation to build a richer Career Memory.</p></div>
+          <div><span>03</span><strong>The Opportunity</strong><p>Add a job description to connect its requirements to your experience.</p></div>
+          <div><span>04</span><strong>Your Interview</strong><p>Practice with short memory cues based on approved facts.</p></div>
+        </div>
+        <p className="guide-note">Your Career Memory grows over time. Prepare for another opportunity without starting over.</p>
+        <button type="button" className="primary-button" onClick={dismissGuide} autoFocus>Get Started <span aria-hidden="true">→</span></button>
+      </div>
+    </div>}
+    <div className="page-wrap" inert={!intro && guideOpen}>
+      <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span></div><div className="topbar-actions"><button type="button" className="topbar-guide" onClick={() => setGuideOpen(true)}>How it works</button><button type="button" className="topbar-delete" onClick={startOver} disabled={busy}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5" /></svg>
+        Delete my data
+      </button></div></header>
+      <section className="journey-heading"><h1>Prepare for your interview.</h1><p>Follow the four steps below.</p></section>
       <nav className="steps-grid" aria-label="Four steps">
         {([1, 2, 3, 4] as Step[]).map((number) => {
           const title = ["Your Resume", "Let's Talk", "The Opportunity", "Your Interview"][number - 1];
           const locked = number === 2 ? !resumeApproved && !hasMemory : number === 3 ? !hasMemory : number === 4 ? !canPractice : false;
           const complete = number === 1 ? resumeApproved : number === 2 ? talkSaved && hasMemory : number === 3 ? !!confirmedOpportunity : false;
           const status = complete ? "Complete" : locked ? number === 2 ? "Approve your resume first" : number === 3 ? "Build Career Memory first" : "Add memory and opportunity first" : number === 1 && proposal ? "Review needed" : number === 4 ? "Ready" : "Available";
-          return <button key={number} type="button" className={`step-card${step === number ? " active" : ""}`} disabled={locked}
+          return <button key={number} type="button" className={`step-card${step === number ? " active" : ""}${number === 2 && stepTwoActivated ? " step-activated" : ""}`} disabled={locked}
             onClick={() => { if (step === 2 && number !== 2) pauseInterview(); setStep(number); }} aria-current={step === number ? "step" : undefined}>
             <span className="step-card-number">0{number}</span><strong>{title}</strong><span className="step-card-status">{complete ? `✓ ${status}` : status}</span>
           </button>;
@@ -347,37 +444,24 @@ export function JourneyApp() {
         {error && <p className="step-error" role="alert">{error}</p>}
         {step === 1 && <>
           <div className="detail-heading"><span className="eyebrow">01 / YOUR RESUME</span><h2>Start with what you’ve done.</h2></div>
-          <div className="resume-upload"><label className="file-button primary-upload">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label><span className="detail-note">{busy ? "Reading…" : resumeName ? `${resumeName} · ${resumeApproved ? "✓ Approved" : "Review before approval"}` : "PDF under 4 MB"}</span></div>
+          <div className="resume-upload">{!resumeName && <label className="file-button primary-upload">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label>}{resumeName ? <div className="resume-file"><span aria-hidden="true" className="pdf-icon">PDF</span><strong>{resumeName}</strong><span className="detail-note">{resumeApproved ? "✓ Approved" : "Review before approval"}</span><button type="button" aria-label="Remove resume PDF" title="Remove resume PDF" disabled={busy} onClick={removeResumeSelection}>×</button></div> : <span className="detail-note">PDF under 4 MB</span>}</div>
           {resumeApproved && !proposal && <div className="approved-resume"><p>{approvedProfile?.profession} · {approvedProfile?.seniority}</p>{approved.filter((project) => project.dates).map((project) => <p key={project.projectId}>{project.title} · {project.dates}</p>)}</div>}
-          {resumeApproved && <button type="button" className="text-button" onClick={() => {
-            if (!window.confirm("Remove this resume and facts supported only by it? Independently supported Career Memory will remain.")) return;
-            void run(async () => { const next = await commitMemory(removeResume); cancelActive(); activeSessionRef.current = null;
-              setApproved(approvedProjects(next)); setJobAlignment(next.opportunities.at(-1)?.alignment ?? null);
-              setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null); setStep(1);
-            });
-          }}>Remove Resume</button>}
-          {proposal && <div className="review-list"><h3>Review Your Career</h3><h4>Career Summary</h4>
+          {proposal && <div className="review-list"><h3>Career Summary</h3>
             <div className="profile-review"><label className="field-label">Profession<input value={proposal.profile.profession} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, profession: event.target.value } }); }}/></label>
-            <label className="field-label">Seniority<input value={proposal.profile.seniority} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value, senioritySource: undefined } }); }}/>{proposal.profile.senioritySource && <span>From: {proposal.profile.senioritySource}</span>}</label>
+            <label className="field-label">Seniority<input value={proposal.profile.seniority} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value, senioritySource: undefined } }); }}/></label>
             <label className="field-label">Career overview<textarea value={proposal.profile.careerSummary} maxLength={500} rows={2} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, careerSummary: event.target.value } }); }}/></label></div>
             {proposal.projects.map((project, pi) => <div className="review-project" key={project.projectId}>
             <label>Project<input value={project.title} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, title: event.target.value } : item) }); }}/></label>
-            {project.dates && <p className="project-dates">{project.dates}</p>}
+            {project.dates && <p className="project-dates"><strong>Dates</strong> {project.dates}</p>}
             {project.facts.map((fact, fi) => <div className="review-fact" key={fact.id}><label>Fact<textarea value={fact.text} maxLength={400} onChange={(event) => updateFact(pi, fi, event.target.value)} rows={2}/></label><button type="button" className="text-button" onClick={() => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, facts: item.facts.filter((_, i) => i !== fi) } : item) }); }}>Remove</button></div>)}
           </div>)}<button className="primary-button" type="button" onClick={approveResume} disabled={busy || resumeApproved}>Approve reviewed facts</button></div>}
         </>}
         {step === 2 && <>
           <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2>Tell the story behind the work.</h2></div>
-          <p className="detail-note">{approvedProfile ? `${approvedProfile.profession} · ${approvedProfile.seniority}` : "Review your resume first."}</p>
-          <label className="consent-check"><input type="checkbox" checked={practiceConsent} onChange={(event) => { if (event.target.checked) setPracticeConsent(true); else stopInterview(); }}/> This is a consensual practice session. No employer or participant rule prohibits recording or AI use.</label>
-          <div className="microphone-setup"><button type="button" className="text-button" disabled={!practiceConsent} onClick={() => void run(async () => {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach((track) => track.stop());
-            const devices = await navigator.mediaDevices.enumerateDevices(); setMicrophones(devices.filter((device) => device.kind === "audioinput"));
-            setMicrophoneStatus("Microphone ready");
-          })}>Test microphone</button>{microphones.length > 1 && <label>Microphone <select value={microphoneId} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Microphone"}</option>)}</select></label>}{microphoneStatus && <span role="status">{microphoneStatus}</span>}</div>
+          <details className="audio-devices"><summary>Audio devices</summary><div className="audio-device-grid"><label>Microphone input<select value={microphoneId} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Microphone"}</option>)}</select></label><div><strong>Speaker / headphones</strong><p>{outputName} · Questions are shown as text</p></div></div><div className="audio-test"><button type="button" className="text-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={microphoneLevel} aria-label="Microphone level" />{microphoneStatus && <span role="status">{microphoneStatus}</span>}</div></details>
           {interviewError && <p className="step-error" role="alert">{interviewError}</p>}
           <div className="interview-controls" aria-live="polite">
-            {!interviewQuestion && <button className="primary-button" type="button" disabled={!approvedProfile || !practiceConsent || interviewPhase === "processing"} onClick={() => void beginInterview()}>{interviewPhase === "stopped" ? "Start new interview" : "Start interview"}</button>}
+            {!interviewQuestion && <button className="primary-button" type="button" disabled={!approvedProfile || interviewPhase === "processing"} onClick={() => void beginInterview()}>{interviewPhase === "stopped" ? "Start new interview" : "Start interview"}</button>}
             <span className={`interview-state ${interviewPhase}`} role="status">{interviewPhase === "permission" ? "Microphone permission" : interviewPhase === "listening" ? "● Recording" : interviewPhase === "processing" ? "Processing" : interviewPhase === "review" ? "Review transcript" : interviewPhase === "paused" ? "Paused" : interviewPhase === "stopped" ? "Stopped" : interviewPhase === "error" ? "Needs attention" : interviewQuestion ? "Ready" : "Not started"}</span>
             {interviewQuestion && !["stopped", "listening", "permission", "processing", "review"].includes(interviewPhase) && <button className="primary-button" type="button" disabled={!practiceConsent} onClick={() => void recordAnswer()}>Record answer</button>}
             {interviewPhase === "review" && <button className="text-button" type="button" onClick={() => { setAnswer(""); setInterviewPhase("idle"); }}>Discard transcript</button>}
@@ -388,9 +472,9 @@ export function JourneyApp() {
           <div className="conversation"><p className="conversation-prompt">{prompt}</p>{conversation.map((turn, index) => <div key={index} className="conversation-turn"><strong>VantSide:</strong> {turn.question}<br/><strong>You:</strong> {turn.answer}</div>)}</div>
           {interviewQuestion && interviewPhase !== "stopped" && <><button type="button" className="text-button" onClick={() => setKeyboardMode((current) => !current)}>{keyboardMode ? "Use microphone" : "Use keyboard instead"}</button>{(keyboardMode || interviewPhase === "review") && <label className="field-label">{interviewPhase === "review" ? "Review and correct your transcript" : "Type your answer"}<textarea value={answer} maxLength={3000} rows={3} disabled={interviewPhase === "listening" || interviewPhase === "processing" || interviewPhase === "permission"} onChange={(event) => setAnswer(event.target.value)}/></label>}
           <button className="secondary-button" type="button" disabled={!practiceConsent || answer.trim().length < 10 || interviewPhase === "processing" || interviewPhase === "listening" || interviewPhase === "permission"} onClick={() => void submitInterviewAnswer()}>Continue conversation</button></>}
-          <div className="memory-editor"><h3>Career Memory</h3><p className="detail-note">Approve at least one project or accomplishment. Interview entries are based on what you said here.</p>
+          <div className="memory-editor"><h3>Career Memory</h3>
             {memoryProposals.map((item, index) => <div className="review-fact" key={`${index}-${item.source}`}><p className="eyebrow">PROPOSED · NOT APPROVED</p><strong>{item.title}</strong><label className="field-label">Review fact<textarea rows={2} maxLength={300} value={item.text} onChange={(event) => setMemoryProposals((old) => old.map((proposal, i) => i === index ? { ...proposal, text: event.target.value } : proposal))}/></label><p>From your answer: “{item.source}”</p><div className="inline-actions"><button className="secondary-button" type="button" disabled={item.text.trim().length < 5} onClick={() => approveMemoryProposal(index)}>Approve</button><button className="text-button" type="button" onClick={() => void run(async () => { await commitMemory((state) => dismissProposal(state, item.id)); setMemoryProposals((old) => old.filter((proposal) => proposal.id !== item.id)); })}>Dismiss</button></div></div>)}
-            {approved.map((project) => <div className="memory-row" key={project.projectId}><strong>{project.title}</strong><span>{project.facts.length} approved fact{project.facts.length === 1 ? "" : "s"}</span><button type="button" className="text-button" onClick={() => void run(async () => {
+            {approved.map((project) => <div className={`memory-row${newProjectId === project.projectId ? " memory-new" : ""}`} key={project.projectId}><strong>{project.title}</strong><span>{project.facts.length} approved fact{project.facts.length === 1 ? "" : "s"}</span><button type="button" className="text-button" onClick={() => void run(async () => {
               const next = await commitMemory((state) => removeCareerProject(state, project.projectId));
               setApproved(approvedProjects(next)); setJobAlignment(next.opportunities.at(-1)?.alignment ?? null);
               setMemoryProposals(pendingInterviewFacts(next)); setResumeApproved(Boolean(next.career.identity));
@@ -413,7 +497,7 @@ export function JourneyApp() {
               setTalkSaved(true); setStep(3);
             });
           }}>Save &amp; Continue</button>
-          <p className="detail-note">{hasDesktopStorage() ? "Saved on this device. Audio and transcripts are not kept." : "Browser preview is session-only."}</p>
+          <details className="privacy-details"><summary>Privacy</summary><p>{hasDesktopStorage() ? "Approved Career Memory is saved on this device. Raw audio and full transcripts are not retained." : "This browser preview keeps Career Memory for this session only."}</p></details>
         </>}
         {step === 3 && <>
           <div className="detail-heading"><span className="eyebrow">03 / THE OPPORTUNITY</span><h2>What are you preparing for?</h2></div>
@@ -470,18 +554,7 @@ export function JourneyApp() {
           <button type="button" className="primary-button practice-start" disabled={!canPractice} onClick={() => setPractice("personal")}>Start Practice</button>
         </>}
       </section>
-      <footer className="page-footer"><span>VantSide</span><span>Practice only · {hasDesktopStorage() ? "Saved on this device" : "Session only"}</span><button type="button" className="text-button" onClick={() => {
-        if (!window.confirm("Delete all saved Career Memory, proposals, sessions, and opportunities from this device?")) return;
-        cancelActive();
-        void run(async () => {
-          await commitMemory(() => emptyMemoryState());
-          activeSessionRef.current = null; setApproved([]); setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null);
-          setMemoryProposals([]); setConversation([]); setInterviewQuestion(""); setInterviewSummary(""); setInterviewPhase("stopped");
-          setAnswer(""); setPracticeConsent(false); setTalkSaved(false); setConfirmedOpportunity(null); setOpportunityDraft(null);
-          setOpportunityInput(""); setOpportunityPdfName(""); setJobAnalysis(null); setJobAlignment(null); setJobAnswer("");
-          setProjectTitle(""); setProjectFact(""); setSavedNotice(false); setKeyboardMode(false); setMicrophones([]); setMicrophoneId(""); setMicrophoneStatus(""); setStep(1);
-        });
-      }}>Delete saved data</button></footer>
+      <footer className="page-footer"><span>VantSide</span><span>Practice only · {hasDesktopStorage() ? "Saved on this device" : "Session only"}</span></footer>
     </div>
   </main>;
 }
