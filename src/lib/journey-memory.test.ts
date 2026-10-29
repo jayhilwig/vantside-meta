@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
-import { approveInterviewFact, approveManualInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity,
+import { approveInterviewFact, approveManualCareerFact, approveManualInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity,
   pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume, retainPendingFact, saveInterviewSession } from "./journey-memory";
 
 test("removing a resume preserves independently supported interview facts", () => {
@@ -84,6 +84,18 @@ test("manual additions require an actual answer excerpt and retain their intervi
   assert.equal(approved.career.sources.find((source) => source.id === sourceId)?.originId, "session-1");
   assert.throws(() => approveManualInterviewFact(emptyMemoryState(), "API platform", "Invented 70% lift",
     "I designed onboarding flows for API developers", "session-1", now));
+});
+
+test("manual Career Memory saves without an interview, retains user provenance, and survives reload", () => {
+  const saved = approveManualCareerFact(emptyMemoryState(), "Design lead", "Led the onboarding redesign", now);
+  assert.equal(approvedProjects(saved)[0].facts[0].text, "Led the onboarding redesign");
+  assert.equal(saved.career.sources[0].kind, "user_material");
+  assert.equal(saved.career.sources[0].label, "User-provided supporting fact");
+  const reloaded = memoryStateSchema.parse(JSON.parse(JSON.stringify(saved)));
+  assert.equal(approvedProjects(reloaded)[0].facts[0].source, "Led the onboarding redesign");
+  assert.equal(reloaded.proposals.length, 0);
+  assert.throws(() => approveManualCareerFact(reloaded, "", "Led the onboarding redesign", now), /role or accomplishment/);
+  assert.throws(() => approveManualCareerFact(reloaded, "Design lead", "x", now), /supporting fact/);
 });
 
 test("removing one opportunity deletes its pending proposal without touching global facts or another job", () => {

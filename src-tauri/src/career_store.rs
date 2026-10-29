@@ -436,6 +436,48 @@ mod tests {
     }
 
     #[test]
+    fn manually_approved_fact_and_user_source_survive_restart() {
+        let path = std::env::temp_dir().join(format!(
+            "vantside-manual-{}-{}.sqlite3",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut state = sample();
+        let career = &mut state["career"];
+        career["materials"].as_array_mut().unwrap().push(json!({"id":"manual-1","kind":"user_material","label":"User-entered Career Memory","addedAt":"2026-10-28T00:00:00Z"}));
+        career["sources"].as_array_mut().unwrap().push(json!({"id":"manual-source","kind":"user_material","originId":"manual-1","label":"User-provided supporting fact","excerpt":"Led the redesign","capturedAt":"2026-10-28T00:00:00Z"}));
+        career["projects"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":"manual-project","title":"Design lead"}));
+        career["facts"].as_array_mut().unwrap().push(json!({"id":"manual-fact","projectId":"manual-project","kind":"accomplishment","text":"Led the redesign","sourceIds":["manual-source"],"approvedAt":"2026-10-28T00:00:00Z"}));
+        let mut connection = open_at(&path).unwrap();
+        save_at(&mut connection, &state, 0).unwrap();
+        drop(connection);
+        let reopened = open_at(&path).unwrap();
+        let restored = load_at(&reopened).unwrap();
+        assert!(
+            restored["state"]["career"]["facts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|fact| fact["id"] == "manual-fact" && fact["sourceIds"][0] == "manual-source")
+        );
+        assert!(
+            restored["state"]["career"]["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|source| source["id"] == "manual-source" && source["originId"] == "manual-1")
+        );
+        drop(reopened);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn malformed_or_interrupted_write_keeps_prior_state() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection

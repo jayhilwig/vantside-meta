@@ -40,9 +40,8 @@ const openerDots = Array.from({ length: 19 }, (_, column) => {
 export function BrandMark({ small = false }: { small?: boolean }) {
   return (
     <span aria-hidden="true" className={`brand-mark${small ? " brand-mark-small" : ""}`}>
-      <svg viewBox="0 0 512 512" fill="none">
-        <path d="M105 128h93l58 122 58-122h93L256 397 105 128Z" fill="currentColor" />
-        <path d="m256 258 70 139h81L304 190l-48 68Z" fill="currentColor" />
+      <svg viewBox="0 0 72 38" fill="none">
+        <path d="m33.55 2.44-11.97 33.28h-7.61L1.87 2.44h7.75l8.25 24.77 8.19-24.77zM70 2v6H35V2zm-17 14v6H35v-6zm-9 14v6h-9v-6z" fill="currentColor" />
       </svg>
     </span>
   );
@@ -86,8 +85,8 @@ export function OpeningSequence({ onFinish, ready = true }: { onFinish: () => vo
       </svg>
       <div className="opening-brand">
         <div className="opening-brand-line">
-          <svg className="opening-vf" viewBox="0 0 52 30" aria-hidden="true">
-            <path d="M0 2h7l8 18L23 2h7L18 28h-6L0 2ZM29 2h23v5H35v6h14v5H35v10h-6V2Z" fill="currentColor" />
+          <svg className="opening-vf" viewBox="0 0 72 38" aria-hidden="true">
+            <path d="m33.55 2.44-11.97 33.28h-7.61L1.87 2.44h7.75l8.25 24.77 8.19-24.77zM70 2v6H35V2zm-17 14v6H35v-6zm-9 14v6h-9v-6z" fill="currentColor" />
           </svg>
           <span className="opening-wordmark">VantSide</span>
         </div>

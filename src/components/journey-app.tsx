@@ -7,7 +7,7 @@ import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-sc
 import type { OpportunityAnalysis } from "@/lib/opportunity-analysis";
 import { dismissProposal, emptyMemoryState, type MemoryState } from "../../backend/career-memory";
 import { hasDesktopStorage, loadCareerMemory, saveCareerMemory } from "@/lib/career-memory-storage";
-import { approvedProjects, approveInterviewFact, approveManualInterviewFact, approveResumeReview,
+import { approvedProjects, approveInterviewFact, approveManualCareerFact, approveResumeReview,
   confirmOpportunity, newMemoryId, pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume,
   retainPendingFact, saveInterviewSession, type PendingInterviewFact } from "@/lib/journey-memory";
 
@@ -58,6 +58,7 @@ export function JourneyApp() {
   const [jobAnswer, setJobAnswer] = useState("");
   const [keyboardMode, setKeyboardMode] = useState(false);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [microphoneListAuthorized, setMicrophoneListAuthorized] = useState(false);
   const [microphoneId, setMicrophoneId] = useState("");
   const [microphoneStatus, setMicrophoneStatus] = useState("");
   const [confirmedOpportunity, setConfirmedOpportunity] = useState<Opportunity | null>(null);
@@ -80,6 +81,8 @@ export function JourneyApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [savedNotice, setSavedNotice] = useState(false);
+  const [manualError, setManualError] = useState("");
+  const stepTwoHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [newProjectId, setNewProjectId] = useState("");
   const [stepTwoActivated, setStepTwoActivated] = useState(false);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
@@ -127,6 +130,33 @@ export function JourneyApp() {
     }).finally(() => { if (mounted) setLoaded(true); });
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    if (step !== 2) return;
+    void refreshDevices();
+  }, [step]);
+
+  async function refreshDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setMicrophones(devices.filter((device) => device.kind === "audioinput"));
+      setOutputs(devices.filter((device) => device.kind === "audiooutput"));
+      setOutputName(devices.find((device) => device.kind === "audiooutput" && device.deviceId === "default")?.label || "System default");
+    } catch { /* Permission errors remain visible when the user runs a device test. */ }
+  }
+
+  async function revealMicrophones() {
+    if (microphoneListAuthorized) { await refreshDevices(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      setMicrophoneListAuthorized(true);
+      await refreshDevices();
+    } catch (cause) {
+      setMicrophoneStatus(cause instanceof Error ? cause.message : "Microphone access is unavailable.");
+    }
+  }
 
   function commitMemory(transform: (state: MemoryState) => MemoryState): Promise<MemoryState> {
     const operation = writeQueueRef.current.then(async () => {
@@ -316,25 +346,32 @@ export function JourneyApp() {
       setInterviewPhase("idle"); setInterviewQuestion(""); setInterviewSummary(""); setConversation([]); setAnswer(""); setPracticeConsent(false);
       setApproved(approvedProjects(next)); setApprovedProfile(reviewed.profile);
       setResumeApproved(true); setStep(2); setStepTwoActivated(true);
-      window.requestAnimationFrame(() => document.querySelector(".step-detail")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }));
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        window.scrollTo(0, 0);
+        document.scrollingElement?.scrollTo(0, 0);
+        stepTwoHeadingRef.current?.focus({ preventScroll: true });
+      }));
       window.setTimeout(() => setStepTwoActivated(false), 1100);
     });
   }
 
   function addInterviewMemory() {
-    if (!projectTitle.trim() || !projectFact.trim() || !conversation.length) { setError("Share an example in the conversation, then name and approve it."); return; }
-    const supported = conversation.some((turn) => turn.answer.toLowerCase().includes(projectFact.trim().toLowerCase()));
-    if (!supported) { setError("Use a short phrase from one of your responses as the supported fact."); return; }
-    const matched = conversation.find((turn) => turn.answer.toLowerCase().includes(projectFact.trim().toLowerCase()));
-    if (!matched) return;
-    const sessionId = activeSessionRef.current ?? newMemoryId("session");
-    activeSessionRef.current = sessionId;
-    void run(async () => {
-      const next = await commitMemory((state) => approveManualInterviewFact(state, projectTitle.trim(), projectFact.trim(), matched.answer, sessionId, new Date().toISOString()));
-      const projects = approvedProjects(next);
-      setNewProjectId(projects.at(-1)?.projectId ?? "");
-      setApproved(projects); setProjectTitle(""); setProjectFact(""); setSavedNotice(true);
-    });
+    setManualError("");
+    const title = projectTitle.trim();
+    const fact = projectFact.trim();
+    if (title.length < 2) { setManualError("Enter a role or accomplishment."); return; }
+    if (fact.length < 5) { setManualError("Enter a supporting fact of at least five characters."); return; }
+    setBusy(true);
+    void (async () => {
+      try {
+        const next = await commitMemory((state) => approveManualCareerFact(state, title, fact, new Date().toISOString()));
+        setApproved(approvedProjects(next));
+        setNewProjectId(next.career.projects.find((project) => project.title.toLowerCase() === title.toLowerCase())?.id ?? "");
+        setProjectTitle(""); setProjectFact(""); setSavedNotice(true);
+      } catch (cause) {
+        setManualError(cause instanceof Error ? cause.message : "Could not save this Career Memory entry.");
+      } finally { setBusy(false); }
+    })();
   }
 
   function dismissGuide() {
@@ -373,30 +410,24 @@ export function JourneyApp() {
   }
 
   async function testSpeaker() {
-    const context = new AudioContext();
-    const destination = context.createMediaStreamDestination();
-    const oscillator = context.createOscillator();
-    const audio = new Audio();
-    let started = false;
+    const audio = new Audio("/speaker-test.mp3");
     try {
       if (outputId) {
         if (typeof audio.setSinkId !== "function") throw new Error("Output selection is unavailable in this desktop WebView. Use the Windows default output.");
         await audio.setSinkId(outputId);
       }
-      oscillator.type = "sine"; oscillator.frequency.value = 440;
-      oscillator.connect(destination); audio.srcObject = destination.stream;
-      oscillator.start(); started = true;
+      const finished = new Promise<void>((resolve, reject) => {
+        audio.onended = () => resolve();
+        audio.onerror = () => reject(new Error("Speaker test audio could not play."));
+      });
       await audio.play();
-      setSpeakerStatus("Playing test tone");
-      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      setSpeakerStatus("Playing speaker test");
+      await finished;
       setSpeakerStatus("Speaker test complete");
     } catch (cause) {
       setSpeakerStatus(cause instanceof Error ? cause.message : "Speaker test unavailable.");
     } finally {
-      if (started) oscillator.stop();
-      audio.pause(); audio.srcObject = null;
-      destination.stream.getTracks().forEach((track) => track.stop());
-      await context.close();
+      audio.pause(); audio.src = "";
     }
   }
 
@@ -410,7 +441,7 @@ export function JourneyApp() {
       setAnswer(""); setPracticeConsent(false); setTalkSaved(false); setConfirmedOpportunity(null); setOpportunityDraft(null);
       setOpportunityInput(""); setOpportunityPdfName(""); setJobAnalysis(null); setJobAlignment(null); setJobAnswer("");
       setProjectTitle(""); setProjectFact(""); setSavedNotice(false); setKeyboardMode(false); setMicrophones([]); setMicrophoneId(""); setMicrophoneStatus(""); setStep(1);
-      setNewProjectId(""); setMicrophoneLevel(0);
+      setNewProjectId(""); setMicrophoneLevel(0); setManualError("");
     });
   }
 
@@ -443,20 +474,20 @@ export function JourneyApp() {
     {!intro && guideOpen && <div className="guide-backdrop" role="dialog" aria-modal="true" aria-labelledby="guide-title" onKeyDown={(event) => { if (event.key === "Escape") dismissGuide(); }}>
       <div className="guide-card">
         <div className="brand-lockup"><BrandMark small /><span>VantSide</span></div>
-        <h2 id="guide-title">Prepare in four steps.</h2>
+        <h2 id="guide-title">Build a Career Memory you can use.</h2>
         <div className="guide-steps">
-          <div><span>01</span><strong>Your Resume</strong><p>Upload your resume to establish your professional background.</p></div>
-          <div><span>02</span><strong>Let’s Talk</strong><p>Have a conversation to build a richer Career Memory.</p></div>
-          <div><span>03</span><strong>The Opportunity</strong><p>Add a job description to connect its requirements to your experience.</p></div>
-          <div><span>04</span><strong>Your Interview</strong><p>Practice with short memory cues based on approved facts.</p></div>
+          <div><span>01</span><strong>Your Resume</strong><p>Establish your professional background.</p></div>
+          <div><span>02</span><strong>Let’s Talk</strong><p>Uncover deeper experiences and build Career Memory.</p></div>
+          <div><span>03</span><strong>The Opportunity</strong><p>Analyze a specific job description.</p></div>
+          <div><span>04</span><strong>Your Interview</strong><p>Practice with memory cues for that opportunity.</p></div>
         </div>
-        <p className="guide-note">Your Career Memory grows as you approve new experiences and can support future opportunities.</p>
-        <div className="guide-destination"><span>FUTURE CONCEPT</span><strong>Go Live · The memory HUD</strong><p>Today, memory cues are for simulated practice. Any future live use requires consent and employer permission.</p></div>
+        <div className="guide-note">Review and approve the experiences you want to remember. Use them to prepare and recall your own work across opportunities. <details className="guide-help"><summary aria-label="What is the HUD?">?</summary><p>The HUD shows brief reminders from your approved Career Memory during simulated practice. Live assistance is not available.</p></details></div>
+        <details className="guide-destination"><summary><span>FUTURE CONCEPT</span><strong>Go Live</strong><span className="guide-destination-arrow" aria-hidden="true">↗</span></summary><p>The memory HUD is planned for permitted live sessions. Today, cues are available only in simulated practice.</p></details>
         <button type="button" className="primary-button" onClick={dismissGuide} autoFocus>Get Started <span aria-hidden="true">→</span></button>
       </div>
     </div>}
     <div className="page-wrap" inert={!intro && guideOpen}>
-      <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span></div><div className="topbar-actions"><button type="button" className="topbar-guide" onClick={() => setGuideOpen(true)}>How it works</button><button type="button" className="topbar-delete" onClick={startOver} disabled={busy}>
+      <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span></div><div className="topbar-actions"><button type="button" className="topbar-guide" onClick={() => setGuideOpen(true)}><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.5"/><path d="M7.8 7.5a2.3 2.3 0 1 1 3.3 2.1c-.8.4-1.1.8-1.1 1.7M10 14.2h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>How it works</button><button type="button" className="topbar-delete" onClick={startOver} disabled={busy}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5" /></svg>
         Delete my data
       </button></div></header>
@@ -473,29 +504,32 @@ export function JourneyApp() {
           </button>;
         })}
       </nav>
-      <section className="step-detail" aria-live="polite">
+      <section key={step} className="step-detail" aria-live="polite">
         {error && <p className="step-error" role="alert">{error}</p>}
         {step === 1 && <>
           <div className="detail-heading"><span className="eyebrow">01 / YOUR RESUME</span><h2>Start with what you’ve done.</h2></div>
-          <div className="resume-upload">{!resumeName && <label className="file-button primary-upload">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label>}{resumeName && <div className="resume-file"><span aria-hidden="true" className="pdf-icon">PDF</span><strong>{resumeName}</strong><span className="resume-file-check" aria-label="PDF processed">✓</span><button type="button" aria-label="Remove resume PDF" title="Remove resume PDF" disabled={busy} onClick={removeResumeSelection}>×</button></div>}</div>
+          <div className="resume-upload">{!resumeName && <label className="file-button primary-upload">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label>}{busy && !resumeName && <span className="resume-processing" role="status"><span className="resume-processing-dots" aria-hidden="true"><i/><i/><i/><i/></span>Analyzing your PDF…</span>}{resumeName && <div className="resume-file"><span aria-hidden="true" className="pdf-icon">PDF</span><strong>{resumeName}</strong><button type="button" className="resume-file-delete" aria-label="Remove resume PDF" title="Remove resume PDF" disabled={busy} onClick={removeResumeSelection}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5"/></svg></button></div>}</div>
           {resumeApproved && !proposal && <div className="approved-resume"><p>{approvedProfile?.profession} · {approvedProfile?.seniority}</p>{approved.filter((project) => project.dates).map((project) => <p key={project.projectId}>{project.title} · {project.dates}</p>)}</div>}
           {proposal && <div className="review-list"><div className="career-summary"><h3>Career Summary</h3>
             <div className="profile-review"><label className="field-label">Profession<input value={proposal.profile.profession} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, profession: event.target.value } }); }}/></label>
             <label className="field-label">Seniority<input value={proposal.profile.seniority} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value, senioritySource: undefined } }); }}/></label>
             <label className="field-label career-overview">Career overview<textarea value={proposal.profile.careerSummary} maxLength={500} rows={2} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, careerSummary: event.target.value } }); }}/></label></div></div>
             {proposal.projects.map((project, pi) => <div className="review-project" key={project.projectId}>
-            <div className="review-project-heading"><label>Project<input value={project.title} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, title: event.target.value } : item) }); }}/></label>
+            <div className="review-project-heading"><label>Role or project<input value={project.title} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, title: event.target.value } : item) }); }}/></label>
             {project.dates && <p className="project-dates"><strong>Dates</strong><span>{project.dates}</span></p>}</div>
             {project.facts.map((fact, fi) => <div className="review-fact" key={fact.id}><label>Fact<textarea value={fact.text} maxLength={400} onChange={(event) => updateFact(pi, fi, event.target.value)} rows={2}/></label><button type="button" className="text-button" onClick={() => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, facts: item.facts.filter((_, i) => i !== fi) } : item) }); }}>Remove</button></div>)}
           </div>)}<button className="primary-button" type="button" onClick={approveResume} disabled={busy || resumeApproved}>Approve reviewed facts</button></div>}
         </>}
         {step === 2 && <>
-          <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2>Tell the story behind the work.</h2></div>
-          <details className="audio-devices"><summary>Audio devices</summary><div className="audio-device-grid"><div><label>Speaker / headphones{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => setOutputId(event.target.value)}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span>{outputName} · System output</span>}</label><button type="button" className="text-button" onClick={() => void testSpeaker()}>Test speaker</button>{speakerStatus && <span role="status">{speakerStatus}</span>}</div><div><label>Microphone input<select value={microphoneId} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Microphone"}</option>)}</select></label><button type="button" className="text-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={microphoneLevel} aria-label="Microphone level" />{microphoneStatus && <span role="status">{microphoneStatus}</span>}</div></div></details>
+          <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2 ref={stepTwoHeadingRef} tabIndex={-1}>Tell the story behind the work.</h2></div>
+          <details className="audio-devices"><summary>Audio setup</summary><div className="audio-device-grid">
+            <section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void refreshDevices()} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={microphoneLevel} aria-label="Microphone level" /></div><span className="device-status" role="status">{microphoneStatus || "Ready to test"}</span></section>
+            <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => setOutputId(event.target.value)}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" onClick={() => void testSpeaker()}>Test speaker</button></div><span className="device-status" role="status">{speakerStatus || "Ready to test"}</span></section>
+          </div></details>
           {interviewError && <p className="step-error" role="alert">{interviewError}</p>}
           <div className="interview-controls" aria-live="polite">
             {!interviewQuestion && <button className="primary-button" type="button" disabled={!approvedProfile || interviewPhase === "processing"} onClick={() => void beginInterview()}>{interviewPhase === "stopped" ? "Start new interview" : "Start interview"}</button>}
-            <span className={`interview-state ${interviewPhase}`} role="status">{interviewPhase === "permission" ? "Microphone permission" : interviewPhase === "listening" ? "● Recording" : interviewPhase === "processing" ? "Processing" : interviewPhase === "review" ? "Review transcript" : interviewPhase === "paused" ? "Paused" : interviewPhase === "stopped" ? "Stopped" : interviewPhase === "error" ? "Needs attention" : interviewQuestion ? "Ready" : "Not started"}</span>
+            <div className="interview-status" role="status"><span>Interview status</span><strong>{interviewPhase === "paused" ? "Paused" : interviewPhase === "stopped" ? "Stopped" : interviewPhase === "error" ? "Needs attention" : interviewQuestion || ["permission", "listening", "processing", "review"].includes(interviewPhase) ? "In progress" : "Not started"}</strong>{interviewPhase === "listening" && <em>Recording</em>}</div>
             {interviewQuestion && !["stopped", "listening", "permission", "processing", "review"].includes(interviewPhase) && <button className="primary-button" type="button" disabled={!practiceConsent} onClick={() => void recordAnswer()}>Record answer</button>}
             {interviewPhase === "review" && <button className="text-button" type="button" onClick={() => { setAnswer(""); setInterviewPhase("idle"); }}>Discard transcript</button>}
             {interviewPhase === "listening" && <button className="primary-button" type="button" onClick={() => void finishAnswer()}>Finish answer</button>}
@@ -514,9 +548,9 @@ export function JourneyApp() {
               setResumeName(next.career.materials.filter((material) => material.kind === "resume").at(-1)?.label ?? "");
               if (!next.career.identity) setApprovedProfile(null);
             })}>Remove</button></div>)}
-            <div className="manual-memory"><label className="field-label">Project or accomplishment<input value={projectTitle} maxLength={100} onChange={(event) => { setProjectTitle(event.target.value); setSavedNotice(false); }}/></label>
-            <label className="field-label">Supported fact · copy a short phrase from your response<textarea value={projectFact} maxLength={300} rows={2} onChange={(event) => { setProjectFact(event.target.value); setSavedNotice(false); }}/></label>
-            <div className="inline-actions"><button className="secondary-button" type="button" onClick={addInterviewMemory}>Add to Career Memory</button>{savedNotice && <span className="saved-note" role="status">✓ Saved</span>}</div></div>
+            <div className="manual-memory"><label className="field-label">Role or accomplishment<input value={projectTitle} maxLength={100} onChange={(event) => { setProjectTitle(event.target.value); setSavedNotice(false); setManualError(""); }}/></label>
+            <label className="field-label">Supporting fact from your own experience<textarea value={projectFact} maxLength={300} rows={2} onChange={(event) => { setProjectFact(event.target.value); setSavedNotice(false); setManualError(""); }}/></label>
+            <div className="inline-actions"><button className="secondary-button" type="button" disabled={busy} onClick={addInterviewMemory}>Add to Career Memory</button>{savedNotice && <span className="saved-note" role="status">✓ Saved</span>}</div>{manualError && <p className="step-error" role="alert">{manualError}</p>}</div>
           </div>
           <button className="primary-button" type="button" disabled={!hasMemory || busy || interviewPhase === "permission" || interviewPhase === "listening" || interviewPhase === "processing"} onClick={() => {
             pauseInterview();

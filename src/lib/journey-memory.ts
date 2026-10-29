@@ -1,4 +1,4 @@
-import { addEvidence, addProposal, approveProposal, deleteMaterial, deleteOpportunity, dismissProposal,
+import { addEvidence, addMaterial, addProposal, approveProposal, deleteMaterial, deleteOpportunity, dismissProposal,
   memoryStateSchema, refreshOpportunityAlignment, type MemoryState } from "../../backend/career-memory";
 import type { CareerProfile, MemoryProject, Opportunity } from "./session-schema";
 import type { OpportunityAnalysis } from "./opportunity-analysis";
@@ -89,6 +89,23 @@ export function approveInterviewFact(state: MemoryState, pending: PendingIntervi
 
 export function approveManualInterviewFact(state: MemoryState, title: string, quote: string, answer: string, sessionId: string, now: string): MemoryState {
   return approveInterviewFact(state, { id: newMemoryId("fact"), title, text: quote, source: quote, answer, sessionId }, now);
+}
+
+export function approveManualCareerFact(state: MemoryState, title: string, fact: string, now: string): MemoryState {
+  const name = title.trim();
+  const text = fact.trim();
+  if (name.length < 2) throw new Error("Enter a role or accomplishment.");
+  if (text.length < 5) throw new Error("Enter a supporting fact of at least five characters.");
+  const materialId = newMemoryId("material");
+  const sourceId = newMemoryId("quote");
+  const existing = state.career.projects.find((project) => project.title.toLowerCase() === name.toLowerCase());
+  let next = addMaterial(state, { id: materialId, kind: "user_material", label: "User-entered Career Memory", addedAt: now });
+  next = addEvidence(next, { id: sourceId, kind: "user_material", originId: materialId,
+    label: "User-provided supporting fact", excerpt: text, capturedAt: now }, text);
+  const proposalId = newMemoryId("fact");
+  next = addProposal(next, { id: proposalId, projectId: existing?.id ?? newMemoryId("project"),
+    projectTitle: existing?.title ?? name, kind: "accomplishment", text, sourceIds: [sourceId], proposedAt: now });
+  return approveProposal(next, proposalId, now);
 }
 
 export function removeCareerProject(state: MemoryState, projectId: string): MemoryState {
