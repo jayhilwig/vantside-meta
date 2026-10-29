@@ -134,6 +134,10 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .guide-steps strong { font-size: 16px; letter-spacing: -.035em; }
 .guide-steps p { max-width: 190px; margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .guide-note { margin: -12px 0 22px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.guide-destination { margin: 0 0 22px; padding: 14px 18px; border-left: 3px solid var(--brand-lime); background: #f7f7f4; }
+.guide-destination span { display: block; margin-bottom: 5px; color: #777772; font-size: 9px; font-weight: 700; letter-spacing: .12em; }
+.guide-destination strong { font-size: 14px; }
+.guide-destination p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .cue-enter { animation: cue-in .32s ease both; }
 .journey-heading { padding: 58px 0 35px; }
 .journey-heading h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 58px); font-weight: 600; letter-spacing: -.065em; line-height: 1.08; }
@@ -141,12 +145,14 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .steps-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .step-card { min-height: 177px; display: flex; flex-direction: column; align-items: flex-start; padding: 21px; text-align: left; border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer; transition: border-color .15s, background .15s; }
 .step-card:hover:not(:disabled), .step-card.active { border-color: var(--ink); background: #fafaf8; }
+.step-card.active { position: relative; border-bottom: 2px solid var(--action); }
+.step-card.active::after { content: ""; position: absolute; top: 100%; left: 50%; width: 2px; height: 20px; background: var(--action); }
 .step-card.step-activated { animation: step-activate 1.1s ease-out both; }
 .step-card:disabled { cursor: not-allowed; background: #f7f7f5; color: #8b8b86; }
 .step-card-number { color: #079c4d; font-size: 30px; font-weight: 700; letter-spacing: -.07em; }
 .step-card strong { margin-top: 16px; font-size: 17px; letter-spacing: -.035em; }
 .step-card-status { margin-top: auto; padding-top: 8px; color: #777772; font-size: 10px; }
-.step-detail { min-height: 335px; margin-top: 20px; padding: 30px; border: 1px solid var(--ink); border-radius: 8px; }
+.step-detail { min-height: 335px; margin-top: 20px; padding: 30px; border: 1px solid var(--ink); border-top: 2px solid var(--action); border-radius: 8px; }
 .detail-heading { margin-bottom: 22px; }
 .detail-heading h2 { margin: 10px 0 0; font-size: 27px; font-weight: 600; letter-spacing: -.05em; }
 .detail-note { max-width: 680px; color: #70706b; font-size: 11px; line-height: 1.6; }
@@ -165,6 +171,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .resume-file { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; width: min(100%, 660px); padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
 .resume-file strong { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
 .resume-file button { margin-left: auto; padding: 2px 7px; border: 0; background: none; cursor: pointer; font-size: 20px; line-height: 1; }
+.resume-file-check { margin-left: auto; color: #087c42; font-size: 16px; font-weight: 800; }
+.resume-file-check + button { margin-left: 2px; }
 .pdf-icon { display: grid; width: 32px; height: 36px; place-items: center; border: 1px solid var(--ink); border-radius: 3px; font-size: 9px; font-weight: 700; }
 .step-card:not(:disabled) .step-card-status { color: #087c42; }
 .saved-note { color: #087c42; font-size: 11px; font-weight: 700; }
@@ -181,6 +189,10 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .text-button { padding: 4px 0; border: 0; background: none; color: #087c42; cursor: pointer; font-size: 11px; font-weight: 700; }
 .step-error { padding: 11px 13px; border-left: 3px solid #b54e3f; background: #fff5f2; color: #7d3026; }
 .review-list, .memory-editor, .opportunity-review { max-width: 760px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.career-summary { padding: 20px; margin: 0 0 24px; border: 1px solid var(--border); border-radius: 7px; background: #fafaf8; }
+.career-summary h3 { margin-bottom: 18px; font-size: 20px; letter-spacing: -.04em; }
+.career-summary .profile-review { margin-bottom: 0; }
+.career-summary .career-overview textarea { min-height: 88px; font-size: 14px; font-weight: 600; line-height: 1.5; }
 .profile-review { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; margin-bottom: 22px; }
 .profile-review .field-label:last-child { grid-column: 1 / -1; }
 .interview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
@@ -192,8 +204,10 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .consent-check input { margin-top: 2px; accent-color: var(--action); }
 .review-list h3, .memory-editor h3 { margin: 0 0 16px; font-size: 15px; }
 .review-project { display: grid; gap: 12px; padding: 16px 0; border-top: 1px solid #ededE9; }
-.project-dates { margin: -6px 0 0; color: var(--muted); font-size: 11px; }
-.review-project > label, .review-fact label, .field-label { display: grid; gap: 7px; color: #5e5e59; font-size: 11px; font-weight: 700; }
+.review-project-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 16px; }
+.project-dates { display: grid; gap: 7px; margin: 0 0 2px; color: var(--muted); font-size: 11px; }
+.project-dates strong { color: #5e5e59; }
+.review-project-heading > label, .review-fact label, .field-label { display: grid; gap: 7px; color: #5e5e59; font-size: 11px; font-weight: 700; }
 .review-project input, .field-label input, .field-label textarea, .review-fact textarea { width: 100%; padding: 10px 12px; border: 1px solid #d9d9d4; border-radius: 4px; color: var(--ink); background: white; font-size: 12px; font-weight: 400; line-height: 1.5; }
 .review-fact { padding: 10px 12px; background: var(--soft); border-radius: 4px; }
 .review-fact p { margin: 7px 0 0; color: #777772; font-size: 10px; line-height: 1.5; }
@@ -213,6 +227,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .audio-device-grid label, .audio-device-grid > div { display: grid; align-content: start; gap: 6px; }
 .audio-device-grid select { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
 .audio-device-grid p { margin: 0; line-height: 1.5; }
+.audio-device-grid > div > .text-button { justify-self: start; }
+.audio-device-grid meter { width: 120px; accent-color: var(--action); }
 .audio-test { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 .audio-test meter { width: 120px; accent-color: var(--action); }
 .privacy-details { max-width: 760px; margin-top: 15px; color: var(--muted); font-size: 11px; }
@@ -232,6 +248,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
   .guide-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 18px; }
   .guide-steps span { margin-bottom: 20px; }
   .audio-device-grid { grid-template-columns: 1fr; }
+  .review-project-heading { grid-template-columns: 1fr; }
   .journey-heading { padding: 38px 0 24px; }
   .steps-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .step-card { min-height: 145px; padding: 16px; }

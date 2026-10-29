@@ -84,6 +84,9 @@ export function JourneyApp() {
   const [stepTwoActivated, setStepTwoActivated] = useState(false);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [outputName, setOutputName] = useState("System default");
+  const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
+  const [outputId, setOutputId] = useState("");
+  const [speakerStatus, setSpeakerStatus] = useState("");
   const hasMemory = approved.some((project) => project.title.trim() && project.facts.some((fact) => fact.text.trim() && fact.source.trim()));
   const canPractice = hasMemory && !!confirmedOpportunity;
   const prompt = interviewQuestion || "Start the interview to get a question based on your approved resume.";
@@ -356,6 +359,7 @@ export function JourneyApp() {
         }, 80);
         const devices = await navigator.mediaDevices.enumerateDevices();
         setMicrophones(devices.filter((device) => device.kind === "audioinput"));
+        setOutputs(devices.filter((device) => device.kind === "audiooutput"));
         setOutputName(devices.find((device) => device.kind === "audiooutput" && device.deviceId === "default")?.label || "System default");
         setMicrophoneStatus("Microphone test running");
         await new Promise((resolve) => window.setTimeout(resolve, 3000));
@@ -366,6 +370,34 @@ export function JourneyApp() {
         await context.close();
       }
     });
+  }
+
+  async function testSpeaker() {
+    const context = new AudioContext();
+    const destination = context.createMediaStreamDestination();
+    const oscillator = context.createOscillator();
+    const audio = new Audio();
+    let started = false;
+    try {
+      if (outputId) {
+        if (typeof audio.setSinkId !== "function") throw new Error("Output selection is unavailable in this desktop WebView. Use the Windows default output.");
+        await audio.setSinkId(outputId);
+      }
+      oscillator.type = "sine"; oscillator.frequency.value = 440;
+      oscillator.connect(destination); audio.srcObject = destination.stream;
+      oscillator.start(); started = true;
+      await audio.play();
+      setSpeakerStatus("Playing test tone");
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      setSpeakerStatus("Speaker test complete");
+    } catch (cause) {
+      setSpeakerStatus(cause instanceof Error ? cause.message : "Speaker test unavailable.");
+    } finally {
+      if (started) oscillator.stop();
+      audio.pause(); audio.srcObject = null;
+      destination.stream.getTracks().forEach((track) => track.stop());
+      await context.close();
+    }
   }
 
   function startOver() {
@@ -418,7 +450,8 @@ export function JourneyApp() {
           <div><span>03</span><strong>The Opportunity</strong><p>Add a job description to connect its requirements to your experience.</p></div>
           <div><span>04</span><strong>Your Interview</strong><p>Practice with short memory cues based on approved facts.</p></div>
         </div>
-        <p className="guide-note">Your Career Memory grows over time. Prepare for another opportunity without starting over.</p>
+        <p className="guide-note">Your Career Memory grows as you approve new experiences and can support future opportunities.</p>
+        <div className="guide-destination"><span>FUTURE CONCEPT</span><strong>Go Live · The memory HUD</strong><p>Today, memory cues are for simulated practice. Any future live use requires consent and employer permission.</p></div>
         <button type="button" className="primary-button" onClick={dismissGuide} autoFocus>Get Started <span aria-hidden="true">→</span></button>
       </div>
     </div>}
@@ -444,21 +477,21 @@ export function JourneyApp() {
         {error && <p className="step-error" role="alert">{error}</p>}
         {step === 1 && <>
           <div className="detail-heading"><span className="eyebrow">01 / YOUR RESUME</span><h2>Start with what you’ve done.</h2></div>
-          <div className="resume-upload">{!resumeName && <label className="file-button primary-upload">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label>}{resumeName ? <div className="resume-file"><span aria-hidden="true" className="pdf-icon">PDF</span><strong>{resumeName}</strong><span className="detail-note">{resumeApproved ? "✓ Approved" : "Review before approval"}</span><button type="button" aria-label="Remove resume PDF" title="Remove resume PDF" disabled={busy} onClick={removeResumeSelection}>×</button></div> : <span className="detail-note">PDF under 4 MB</span>}</div>
+          <div className="resume-upload">{!resumeName && <label className="file-button primary-upload">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label>}{resumeName && <div className="resume-file"><span aria-hidden="true" className="pdf-icon">PDF</span><strong>{resumeName}</strong><span className="resume-file-check" aria-label="PDF processed">✓</span><button type="button" aria-label="Remove resume PDF" title="Remove resume PDF" disabled={busy} onClick={removeResumeSelection}>×</button></div>}</div>
           {resumeApproved && !proposal && <div className="approved-resume"><p>{approvedProfile?.profession} · {approvedProfile?.seniority}</p>{approved.filter((project) => project.dates).map((project) => <p key={project.projectId}>{project.title} · {project.dates}</p>)}</div>}
-          {proposal && <div className="review-list"><h3>Career Summary</h3>
+          {proposal && <div className="review-list"><div className="career-summary"><h3>Career Summary</h3>
             <div className="profile-review"><label className="field-label">Profession<input value={proposal.profile.profession} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, profession: event.target.value } }); }}/></label>
             <label className="field-label">Seniority<input value={proposal.profile.seniority} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value, senioritySource: undefined } }); }}/></label>
-            <label className="field-label">Career overview<textarea value={proposal.profile.careerSummary} maxLength={500} rows={2} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, careerSummary: event.target.value } }); }}/></label></div>
+            <label className="field-label career-overview">Career overview<textarea value={proposal.profile.careerSummary} maxLength={500} rows={2} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, careerSummary: event.target.value } }); }}/></label></div></div>
             {proposal.projects.map((project, pi) => <div className="review-project" key={project.projectId}>
-            <label>Project<input value={project.title} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, title: event.target.value } : item) }); }}/></label>
-            {project.dates && <p className="project-dates"><strong>Dates</strong> {project.dates}</p>}
+            <div className="review-project-heading"><label>Project<input value={project.title} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, title: event.target.value } : item) }); }}/></label>
+            {project.dates && <p className="project-dates"><strong>Dates</strong><span>{project.dates}</span></p>}</div>
             {project.facts.map((fact, fi) => <div className="review-fact" key={fact.id}><label>Fact<textarea value={fact.text} maxLength={400} onChange={(event) => updateFact(pi, fi, event.target.value)} rows={2}/></label><button type="button" className="text-button" onClick={() => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, facts: item.facts.filter((_, i) => i !== fi) } : item) }); }}>Remove</button></div>)}
           </div>)}<button className="primary-button" type="button" onClick={approveResume} disabled={busy || resumeApproved}>Approve reviewed facts</button></div>}
         </>}
         {step === 2 && <>
           <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2>Tell the story behind the work.</h2></div>
-          <details className="audio-devices"><summary>Audio devices</summary><div className="audio-device-grid"><label>Microphone input<select value={microphoneId} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Microphone"}</option>)}</select></label><div><strong>Speaker / headphones</strong><p>{outputName} · Questions are shown as text</p></div></div><div className="audio-test"><button type="button" className="text-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={microphoneLevel} aria-label="Microphone level" />{microphoneStatus && <span role="status">{microphoneStatus}</span>}</div></details>
+          <details className="audio-devices"><summary>Audio devices</summary><div className="audio-device-grid"><div><label>Speaker / headphones{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => setOutputId(event.target.value)}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span>{outputName} · System output</span>}</label><button type="button" className="text-button" onClick={() => void testSpeaker()}>Test speaker</button>{speakerStatus && <span role="status">{speakerStatus}</span>}</div><div><label>Microphone input<select value={microphoneId} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Microphone"}</option>)}</select></label><button type="button" className="text-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={microphoneLevel} aria-label="Microphone level" />{microphoneStatus && <span role="status">{microphoneStatus}</span>}</div></div></details>
           {interviewError && <p className="step-error" role="alert">{interviewError}</p>}
           <div className="interview-controls" aria-live="polite">
             {!interviewQuestion && <button className="primary-button" type="button" disabled={!approvedProfile || interviewPhase === "processing"} onClick={() => void beginInterview()}>{interviewPhase === "stopped" ? "Start new interview" : "Start interview"}</button>}
