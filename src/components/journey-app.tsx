@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { BrandMark, OpeningSequence, PracticeApp } from "./practice-app";
 import { startAnswerRecording, type AnswerRecorder } from "@/lib/record-answer";
 import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-schema";
@@ -36,7 +37,8 @@ async function post<T>(route: string, body: object, signal?: AbortSignal): Promi
 export function JourneyApp() {
   const [intro, setIntro] = useState(true);
   const closeIntro = useCallback(() => setIntro(false), []);
-  const [guideOpen, setGuideOpen] = useState(false);
+  const hudDialogRef = useRef<HTMLDialogElement | null>(null);
+  const hudTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [storageFault, setStorageFault] = useState("");
   const memoryRef = useRef<MemoryState>(emptyMemoryState());
@@ -90,6 +92,8 @@ export function JourneyApp() {
   const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
   const [outputId, setOutputId] = useState("");
   const [speakerStatus, setSpeakerStatus] = useState("");
+  const [speakerTesting, setSpeakerTesting] = useState(false);
+  const speakerTestRef = useRef<{ audio: HTMLAudioElement; cancel: () => void } | null>(null);
   const hasMemory = approved.some((project) => project.title.trim() && project.facts.some((fact) => fact.text.trim() && fact.source.trim()));
   const canPractice = hasMemory && !!confirmedOpportunity;
   const prompt = interviewQuestion || "Start the interview to get a question based on your approved resume.";
@@ -102,10 +106,6 @@ export function JourneyApp() {
       const projects = approvedProjects(state);
       const lastResume = state.career.materials.filter((material) => material.kind === "resume").at(-1);
       const lastOpportunity = state.opportunities.at(-1);
-      if (!state.career.materials.length && !state.career.facts.length && !state.opportunities.length) {
-        try { setGuideOpen(window.localStorage.getItem("vantside-guide-seen") !== "1"); }
-        catch { setGuideOpen(true); }
-      }
       setApproved(projects);
       setApprovedProfile(state.career.identity ? {
         profession: state.career.identity.profession, seniority: state.career.identity.seniority,
@@ -374,10 +374,22 @@ export function JourneyApp() {
     })();
   }
 
-  function dismissGuide() {
-    try { window.localStorage.setItem("vantside-guide-seen", "1"); } catch { /* Session-only browser storage. */ }
-    setGuideOpen(false);
+  function openHudPreview() {
+    if (!hudDialogRef.current?.open) hudDialogRef.current?.showModal();
   }
+
+  function stopSpeakerTest() {
+    const test = speakerTestRef.current;
+    if (!test) return;
+    speakerTestRef.current = null;
+    test.audio.pause();
+    test.audio.removeAttribute("src");
+    test.audio.onended = null;
+    test.audio.onerror = null;
+    test.cancel();
+  }
+
+  useEffect(() => () => { stopSpeakerTest(); setSpeakerTesting(false); setSpeakerStatus(""); }, [step]);
 
   async function testMicrophone() {
     await run(async () => {
@@ -410,24 +422,35 @@ export function JourneyApp() {
   }
 
   async function testSpeaker() {
+    if (speakerTestRef.current) return;
     const audio = new Audio("/speaker-test.mp3");
+    let settle = () => {};
+    const finished = new Promise<"ended" | "cancelled">((resolve, reject) => {
+      settle = () => resolve("cancelled");
+      audio.onended = () => resolve("ended");
+      audio.onerror = () => reject(new Error("Speaker test audio could not play."));
+    });
+    speakerTestRef.current = { audio, cancel: settle };
+    setSpeakerTesting(true);
     try {
       if (outputId) {
         if (typeof audio.setSinkId !== "function") throw new Error("Output selection is unavailable in this desktop WebView. Use the Windows default output.");
         await audio.setSinkId(outputId);
       }
-      const finished = new Promise<void>((resolve, reject) => {
-        audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error("Speaker test audio could not play."));
-      });
+      if (speakerTestRef.current?.audio !== audio) return;
       await audio.play();
+      if (speakerTestRef.current?.audio !== audio) return;
       setSpeakerStatus("Playing speaker test");
-      await finished;
-      setSpeakerStatus("Speaker test complete");
+      if (await finished === "ended" && speakerTestRef.current?.audio === audio) setSpeakerStatus("Speaker test complete");
     } catch (cause) {
-      setSpeakerStatus(cause instanceof Error ? cause.message : "Speaker test unavailable.");
+      if (speakerTestRef.current?.audio === audio) setSpeakerStatus(cause instanceof Error ? cause.message : "Speaker test unavailable.");
     } finally {
-      audio.pause(); audio.src = "";
+      if (speakerTestRef.current?.audio === audio) {
+        speakerTestRef.current = null;
+        setSpeakerTesting(false);
+      }
+      audio.pause(); audio.removeAttribute("src");
+      audio.onended = null; audio.onerror = null;
     }
   }
 
@@ -471,36 +494,27 @@ export function JourneyApp() {
 
   return <main className="app-shell">
     {intro && <OpeningSequence onFinish={closeIntro} />}
-    {!intro && guideOpen && <div className="guide-backdrop" role="dialog" aria-modal="true" aria-labelledby="guide-title" onKeyDown={(event) => { if (event.key === "Escape") dismissGuide(); }}>
-      <div className="guide-card">
-        <div className="brand-lockup"><BrandMark small /><span>VantSide</span></div>
-        <h2 id="guide-title">Build a Career Memory you can use.</h2>
-        <div className="guide-steps">
-          <div><span>01</span><strong>Your Resume</strong><p>Establish your professional background.</p></div>
-          <div><span>02</span><strong>Let’s Talk</strong><p>Uncover deeper experiences and build Career Memory.</p></div>
-          <div><span>03</span><strong>The Opportunity</strong><p>Analyze a specific job description.</p></div>
-          <div><span>04</span><strong>Your Interview</strong><p>Practice with memory cues for that opportunity.</p></div>
-        </div>
-        <div className="guide-note">Review and approve the experiences you want to remember. Use them to prepare and recall your own work across opportunities. <details className="guide-help"><summary aria-label="What is the HUD?">?</summary><p>The HUD shows brief reminders from your approved Career Memory during simulated practice. Live assistance is not available.</p></details></div>
-        <details className="guide-destination"><summary><span>FUTURE CONCEPT</span><strong>Go Live</strong><span className="guide-destination-arrow" aria-hidden="true">↗</span></summary><p>The memory HUD is planned for permitted live sessions. Today, cues are available only in simulated practice.</p></details>
-        <button type="button" className="primary-button" onClick={dismissGuide} autoFocus>Get Started <span aria-hidden="true">→</span></button>
-      </div>
-    </div>}
-    <div className="page-wrap" inert={!intro && guideOpen}>
-      <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span></div><div className="topbar-actions"><button type="button" className="topbar-guide" onClick={() => setGuideOpen(true)}><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.5"/><path d="M7.8 7.5a2.3 2.3 0 1 1 3.3 2.1c-.8.4-1.1.8-1.1 1.7M10 14.2h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>How it works</button><button type="button" className="topbar-delete" onClick={startOver} disabled={busy}>
+    <dialog ref={hudDialogRef} className="hud-preview" aria-labelledby="hud-preview-title" aria-describedby="hud-preview-description" onClose={() => hudTriggerRef.current?.focus()}>
+      <div className="hud-preview-heading"><div><span className="eyebrow">ILLUSTRATIVE PREVIEW</span><h2 id="hud-preview-title">The VantSide HUD</h2></div><button type="button" className="hud-preview-close" onClick={() => hudDialogRef.current?.close()} aria-label="Close HUD preview">×</button></div>
+      <p id="hud-preview-description">Brief cues from approved Career Memory while you practice responding naturally.</p>
+      <Image src="/hud_overlay.webp" alt="Illustrative simulated interview with VantSide memory cues shown across the top" width={1672} height={941} unoptimized />
+      <p className="hud-preview-caption">Simulated interview preview. Practice mode only.</p>
+    </dialog>
+    <div className="page-wrap">
+      <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span></div><div className="topbar-actions"><button type="button" className="topbar-delete" onClick={startOver} disabled={busy}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5" /></svg>
         Delete my data
       </button></div></header>
-      <section className="journey-heading"><h1>Prepare for your interview.</h1><p>Follow the four steps below.</p></section>
+      <section className="journey-heading"><h1>Your experience, when you need it.</h1><p>Build a Career Memory from your resume and conversations. Then use VantSide&apos;s <button ref={hudTriggerRef} type="button" className="hud-preview-trigger" onMouseEnter={openHudPreview} onClick={openHudPreview} aria-haspopup="dialog">HUD<span className="hud-preview-spark" aria-hidden="true">↗</span></button> to recall the right experiences during interview practice.</p></section>
       <nav className="steps-grid" aria-label="Four steps">
         {([1, 2, 3, 4] as Step[]).map((number) => {
           const title = ["Your Resume", "Let's Talk", "The Opportunity", "Your Interview"][number - 1];
           const locked = number === 2 ? !resumeApproved && !hasMemory : number === 3 ? !hasMemory : number === 4 ? !canPractice : false;
           const complete = number === 1 ? resumeApproved : number === 2 ? talkSaved && hasMemory : number === 3 ? !!confirmedOpportunity : false;
-          const status = complete ? "Complete" : locked ? number === 2 ? "Approve your resume first" : number === 3 ? "Build Career Memory first" : "Add memory and opportunity first" : number === 1 && proposal ? "Review needed" : number === 4 ? "Ready" : "Available";
+          const description = ["Establish your professional background.", "Share deeper experiences to build your Career Memory.", "Explore how your experience connects to a specific job.", "Practice for the role and identify supported strengths and areas to explore."][number - 1];
           return <button key={number} type="button" className={`step-card${step === number ? " active" : ""}${number === 2 && stepTwoActivated ? " step-activated" : ""}`} disabled={locked}
             onClick={() => { if (step === 2 && number !== 2) pauseInterview(); setStep(number); }} aria-current={step === number ? "step" : undefined}>
-            <span className="step-card-number">0{number}</span><strong>{title}</strong><span className="step-card-status">{complete ? `✓ ${status}` : status}</span>
+            <span className="step-card-top"><span className="step-card-number">0{number}</span>{complete && <span className="step-card-check" aria-label="Complete">✓</span>}{locked && <span className="step-card-lock" aria-label="Locked"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1" stroke="currentColor"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor"/></svg></span>}</span><strong>{title}</strong><span className="step-card-description">{description}</span>
           </button>;
         })}
       </nav>
@@ -524,7 +538,7 @@ export function JourneyApp() {
           <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2 ref={stepTwoHeadingRef} tabIndex={-1}>Tell the story behind the work.</h2></div>
           <details className="audio-devices"><summary>Audio setup</summary><div className="audio-device-grid">
             <section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void refreshDevices()} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={microphoneLevel} aria-label="Microphone level" /></div><span className="device-status" role="status">{microphoneStatus || "Ready to test"}</span></section>
-            <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => setOutputId(event.target.value)}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" onClick={() => void testSpeaker()}>Test speaker</button></div><span className="device-status" role="status">{speakerStatus || "Ready to test"}</span></section>
+            <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => setOutputId(event.target.value)}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={speakerTesting} onClick={() => void testSpeaker()}>Test speaker</button></div><span className="device-status" role="status">{speakerStatus || "Ready to test"}</span></section>
           </div></details>
           {interviewError && <p className="step-error" role="alert">{interviewError}</p>}
           <div className="interview-controls" aria-live="polite">
