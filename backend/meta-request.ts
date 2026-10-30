@@ -19,12 +19,26 @@ export async function askMeta(
       cache: "no-store",
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000),
     });
-    if (!response.ok) return { error: "Meta could not complete this request. Please try again." };
-    const upstream = await response.json();
-    const raw = upstream?.choices?.[0]?.message?.content;
-    if (typeof raw !== "string") return { error: "Meta returned an unreadable result. Please try again." };
-    return { data: JSON.parse(raw) as unknown };
-  } catch {
-    return { error: "Meta could not be reached or returned unreadable data. Please try again." };
+    if (!response.ok) {
+      console.warn("Meta request failed", { stage: "http", status: response.status });
+      return { error: response.status === 401 || response.status === 403 ? "Meta rejected the local API credentials. Check .env.local and restart the backend."
+        : response.status === 429 ? "Meta is rate limiting requests. Wait a moment and try again."
+        : response.status >= 500 ? "Meta is temporarily unavailable. Try again shortly."
+        : "Meta rejected this request. Check the local backend configuration." };
+    }
+    let upstream: unknown;
+    try { upstream = await response.json(); }
+    catch { console.warn("Meta request failed", { stage: "response-json" }); return { error: "Meta returned an unreadable response. Try again." }; }
+    const raw = (upstream as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]?.message?.content;
+    if (typeof raw !== "string" || !raw.trim()) { console.warn("Meta request failed", { stage: "missing-content" }); return { error: "Meta returned no answer. Try again." }; }
+    try { return { data: JSON.parse(raw) as unknown }; }
+    catch { console.warn("Meta request failed", { stage: "content-json" }); return { error: "Meta returned an unreadable answer. Try again." }; }
+  } catch (cause) {
+    const name = cause instanceof Error ? cause.name : "unknown";
+    const code = cause instanceof Error && cause.cause && typeof cause.cause === "object" && "code" in cause.cause ? String(cause.cause.code) : undefined;
+    console.warn("Meta request failed", { stage: name === "TimeoutError" ? "timeout" : name === "AbortError" ? "cancelled" : "connection", code: code?.slice(0, 32) });
+    return { error: name === "TimeoutError" ? "Meta took too long to respond. Try again."
+      : code === "ENOTFOUND" ? "The Meta server could not be found. Check your internet connection and DNS."
+      : "Meta could not be reached. Check your internet connection and try again." };
   }
 }

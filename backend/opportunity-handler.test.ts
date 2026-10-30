@@ -11,6 +11,29 @@ const analysis = { company: "Example", role: "Platform designer", confidence: "c
     { id: "research", kind: "preferred", text: "Conduct user research", sourceExcerpt: "Conduct user research" },
   ] } as const;
 
+test("current pasted-JD route uses Baseten only when explicitly selected, without paid fallback", async () => {
+  const previous = { provider: process.env.OPPORTUNITY_PROVIDER, key: process.env.BASETEN_API_KEY };
+  process.env.OPPORTUNITY_PROVIDER = "baseten"; process.env.BASETEN_API_KEY = "mock-secret";
+  try {
+    const text = "Example needs a Senior Platform designer. Design API platforms and Conduct user research.";
+    const result = await analyzeOpportunity({ text, careerFacts: [] }, async (url, init) => {
+      assert.equal(url, "https://inference.baseten.co/v1/chat/completions");
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.model, "meta-models/muse-spark-open");
+      assert.equal(body.max_tokens, 1600);
+      return Response.json({ choices: [{ message: { content: JSON.stringify(analysis) } }] });
+    });
+    assert.equal(result.status, 200);
+    let calls = 0;
+    const failed = await analyzeOpportunity({ text, careerFacts: [] }, async () => { calls++; return new Response("", { status: 403 }); });
+    assert.equal(failed.status, 502);
+    assert.equal(calls, 1);
+  } finally {
+    if (previous.provider === undefined) delete process.env.OPPORTUNITY_PROVIDER; else process.env.OPPORTUNITY_PROVIDER = previous.provider;
+    if (previous.key === undefined) delete process.env.BASETEN_API_KEY; else process.env.BASETEN_API_KEY = previous.key;
+  }
+});
+
 test("pasted JD requirements retain quoted source and reject invented excerpts", async () => {
   const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL];
   process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1"; process.env.META_MODEL = "mock";

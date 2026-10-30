@@ -6,9 +6,9 @@ import { opportunitySchema, resumeInterviewProposalSchema } from "../src/lib/ses
 const pdfSchema = z.object({ filename: z.string().trim().min(1).max(120).regex(/\.pdf$/i), data: z.string().min(20).max(5_400_000) }).strict();
 const seniorityLevels = ["Principal", "Staff", "Senior", "Lead", "Director", "VP"];
 
-function normalizedSeniority(value: string, source?: string): string {
+export function normalizedSeniority(source?: string): string {
   if (!source) return "Not specified";
-  const levels = seniorityLevels.filter((level) => new RegExp(`\\b${level}\\b`, "i").test(source) && new RegExp(`\\b${level}\\b`, "i").test(value));
+  const levels = seniorityLevels.filter((level) => new RegExp(`\\b${level}\\b`, "i").test(source));
   return levels.length === 1 ? levels[0] : "Not specified";
 }
 const opportunityInputSchema = z.union([
@@ -28,14 +28,14 @@ export async function extractResume(body: unknown, fetcher: typeof fetch = fetch
   if (!input.success) return { status: 400, body: { error: "Choose a PDF under 4 MB." } };
   const content = pdfContent(input.data, "Extract only projects or accomplishments explicitly supported by this resume. Return short factual statements and short verbatim evidence snippets in source. Omit anything uncertain.");
   if (!content) return { status: 400, body: { error: "This file is not a valid PDF under 4 MB." } };
-  const result = await askMeta("Return JSON only: {profile:{profession,seniority,senioritySource?,careerSummary},projects:[{projectId,title,dates?,dateSource?,facts:[{id,text,source}]}]}. Infer seniority only from an explicit title; return a concise level such as Senior, Staff, Principal, Lead, Director, or VP, never a full title. Include the exact title as senioritySource. If multiple levels are present or unclear, use 'Not specified' for review. Otherwise use 'Not specified' and omit senioritySource. Include dates and their verbatim dateSource only when explicitly stated in the PDF; otherwise omit both. The profile must be supported by the resume. Use unique lowercase hyphenated IDs. Every fact source must be a brief verbatim excerpt from the PDF. Never invent accomplishments, numbers, roles or evidence. At most 5 projects, 5 facts each. This is a proposal requiring user review, not approved memory.", content, 1750, fetcher);
+  const result = await askMeta("Return JSON only: {profile:{profession,seniority,senioritySource?,careerSummary},projects:[{projectId,title,dates?,dateSource?,facts:[{id,text,source}]}]}. Extract seniority from an explicit professional title in the resume, not years of experience. Return only the level (Senior, Staff, Principal, Lead, Director, or VP) in seniority and the exact supporting title in senioritySource. Do not return a full job title as seniority. When multiple levels occur, prefer the clearly current title; if chronology is unclear, use 'Not specified' for review. If no explicit level is present, use 'Not specified' and omit senioritySource. Keep profession separate. Include dates and their verbatim dateSource only when explicitly stated in the PDF; otherwise omit both. The profile must be supported by the resume. Use unique lowercase hyphenated IDs. Every fact source must be a brief verbatim excerpt from the PDF. Never invent accomplishments, numbers, roles or evidence. At most 5 projects, 5 facts each. This is a proposal requiring user review, not approved memory.", content, 1750, fetcher);
   if (result.error) return { status: 502, body: { error: result.error } };
   const parsed = resumeInterviewProposalSchema.safeParse(result.data);
   if (!parsed.success || !parsed.data.projects.length) return { status: 502, body: { error: "No reviewable career facts were found. Try another PDF." } };
   const ids = parsed.data.projects.flatMap((project) => [project.projectId, ...project.facts.map((fact) => fact.id)]);
   if (new Set(ids).size !== ids.length) return { status: 502, body: { error: "Meta returned duplicate fact IDs. Please try again." } };
   return { status: 200, body: { proposal: { ...parsed.data, profile: { ...parsed.data.profile,
-    seniority: normalizedSeniority(parsed.data.profile.seniority, parsed.data.profile.senioritySource) } } } };
+    seniority: normalizedSeniority(parsed.data.profile.senioritySource) } } } };
 }
 
 export async function extractOpportunity(body: unknown, fetcher: typeof fetch = fetch) {

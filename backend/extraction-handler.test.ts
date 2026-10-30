@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractOpportunity, extractResume } from "./extraction-handler";
+import { extractOpportunity, extractResume, normalizedSeniority } from "./extraction-handler";
+
+test("seniority uses an explicit title excerpt even when the model designation is missing", () => {
+  assert.equal(normalizedSeniority("Staff Product Designer"), "Staff");
+  assert.equal(normalizedSeniority("Principal Engineer"), "Principal");
+  assert.equal(normalizedSeniority("Senior Product Designer"), "Senior");
+  assert.equal(normalizedSeniority("Product Designer with 12 years of experience"), "Not specified");
+  assert.equal(normalizedSeniority("Senior and Staff Product Designer"), "Not specified");
+  assert.equal(normalizedSeniority(), "Not specified");
+});
 import { resumeInterviewProposalSchema } from "../src/lib/session-schema";
 
 test("resume date and title evidence require paired, reviewable fields", () => {

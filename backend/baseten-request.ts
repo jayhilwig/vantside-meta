@@ -2,14 +2,14 @@
 export const BASETEN_MODEL = "meta-models/muse-spark-open";
 const BASETEN_URL = "https://inference.baseten.co/v1/chat/completions";
 
-export async function askBasetenOpportunity(instruction: string, content: string, fetcher: typeof fetch = fetch) {
+export async function askBasetenOpportunity(instruction: string, content: string, fetcher: typeof fetch = fetch, maxTokens = 220) {
   const key = process.env.BASETEN_API_KEY;
   if (!key) return { error: "Baseten is not configured." };
   try {
     const response = await fetcher(BASETEN_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: BASETEN_MODEL, max_tokens: 220, temperature: 0,
+      body: JSON.stringify({ model: BASETEN_MODEL, max_tokens: maxTokens, temperature: 0,
         messages: [{ role: "developer", content: instruction }, { role: "user", content }] }),
       signal: AbortSignal.timeout(45_000),
     });

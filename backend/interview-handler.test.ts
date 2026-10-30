@@ -102,3 +102,30 @@ test("cancelled and failed conversation requests return recoverable errors witho
     }
   }
 });
+
+test("startup reports transport, HTTP, malformed JSON, and schema failures separately", async () => {
+  const previous = { key: process.env.MODEL_API_KEY, base: process.env.META_API_BASE_URL, model: process.env.META_MODEL };
+  process.env.MODEL_API_KEY = "mock-only"; process.env.META_API_BASE_URL = "https://example.invalid/v1"; process.env.META_MODEL = "mock-model";
+  const context = { profile: { profession: "Designer", seniority: "Senior", careerSummary: "Designed a product launch with research." },
+    projects: [{ projectId: "launch", title: "Launch", facts: [{ id: "fact", text: "Led research", source: "resume excerpt" }] }] };
+  try {
+    const dns = await startInterview(context, async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } }); });
+    assert.match(dns.body.error ?? "", /DNS/);
+    const http = await startInterview(context, async () => new Response("private upstream body", { status: 401 }));
+    assert.match(http.body.error ?? "", /credentials/);
+    assert.doesNotMatch(http.body.error ?? "", /private upstream body/);
+    const malformed = await startInterview(context, async () => new Response("not json"));
+    assert.match(malformed.body.error ?? "", /unreadable response/);
+    const invalidContent = await startInterview(context, async () => Response.json({ choices: [{ message: { content: "not json" } }] }));
+    assert.match(invalidContent.body.error ?? "", /unreadable answer/);
+    const timeout = await startInterview(context, async () => { throw new DOMException("Timed out", "TimeoutError"); });
+    assert.match(timeout.body.error ?? "", /too long/);
+    const invalidQuestion = await startInterview(context, async () => Response.json({ choices: [{ message: { content: '{"question":"Hi"}' } }] }));
+    assert.match(invalidQuestion.body.error ?? "", /usable opening question/);
+    for (const result of [dns, http, malformed, invalidContent, timeout, invalidQuestion]) assert.equal(result.status, 502);
+  } finally {
+    for (const [name, value] of [["MODEL_API_KEY", previous.key], ["META_API_BASE_URL", previous.base], ["META_MODEL", previous.model]] as const) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { BrandMark, OpeningSequence, PracticeApp } from "./practice-app";
 import { startAnswerRecording, type AnswerRecorder } from "@/lib/record-answer";
@@ -28,8 +28,12 @@ async function fileData(file: File): Promise<string> {
 }
 
 async function post<T>(route: string, body: object, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${api}${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
-  const result = await response.json();
+  let response: Response;
+  try { response = await fetch(`${api}${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal }); }
+  catch (cause) { throw new Error(cause instanceof Error && cause.name === "AbortError" ? "Request cancelled." : "Local practice backend is unreachable. Start the backend and try again."); }
+  let result: { error?: string } & T;
+  try { result = await response.json(); }
+  catch { throw new Error("Local practice backend returned unreadable data. Restart it and try again."); }
   if (!response.ok) throw new Error(result.error ?? "Please try again.");
   return result as T;
 }
@@ -39,6 +43,7 @@ export function JourneyApp() {
   const closeIntro = useCallback(() => setIntro(false), []);
   const hudDialogRef = useRef<HTMLDialogElement | null>(null);
   const hudTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const hudDragRef = useRef<{ x: number; y: number } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [storageFault, setStorageFault] = useState("");
   const memoryRef = useRef<MemoryState>(emptyMemoryState());
@@ -96,7 +101,6 @@ export function JourneyApp() {
   const speakerTestRef = useRef<{ audio: HTMLAudioElement; cancel: () => void } | null>(null);
   const hasMemory = approved.some((project) => project.title.trim() && project.facts.some((fact) => fact.text.trim() && fact.source.trim()));
   const canPractice = hasMemory && !!confirmedOpportunity;
-  const prompt = interviewQuestion || "Start the interview to get a question based on your approved resume.";
 
   useEffect(() => {
     let mounted = true;
@@ -375,7 +379,28 @@ export function JourneyApp() {
   }
 
   function openHudPreview() {
-    if (!hudDialogRef.current?.open) hudDialogRef.current?.showModal();
+    const dialog = hudDialogRef.current;
+    if (!dialog || dialog.open) return;
+    dialog.style.left = "50%"; dialog.style.top = "50%"; dialog.style.transform = "translate(-50%, -50%)";
+    dialog.showModal();
+  }
+
+  function beginHudDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    const dialog = hudDialogRef.current;
+    if (!dialog) return;
+    const bounds = dialog.getBoundingClientRect();
+    hudDragRef.current = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    dialog.style.left = `${bounds.left}px`; dialog.style.top = `${bounds.top}px`; dialog.style.transform = "none";
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveHudDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = hudDragRef.current;
+    const dialog = hudDialogRef.current;
+    if (!drag || !dialog) return;
+    dialog.style.left = `${Math.max(0, Math.min(window.innerWidth - dialog.offsetWidth, event.clientX - drag.x))}px`;
+    dialog.style.top = `${Math.max(0, Math.min(window.innerHeight - dialog.offsetHeight, event.clientY - drag.y))}px`;
   }
 
   function stopSpeakerTest() {
@@ -494,18 +519,17 @@ export function JourneyApp() {
 
   return <main className="app-shell">
     {intro && <OpeningSequence onFinish={closeIntro} />}
-    <dialog ref={hudDialogRef} className="hud-preview" aria-labelledby="hud-preview-title" aria-describedby="hud-preview-description" onClose={() => hudTriggerRef.current?.focus()}>
-      <div className="hud-preview-heading"><div><span className="eyebrow">ILLUSTRATIVE PREVIEW</span><h2 id="hud-preview-title">The VantSide HUD</h2></div><button type="button" className="hud-preview-close" onClick={() => hudDialogRef.current?.close()} aria-label="Close HUD preview">×</button></div>
-      <p id="hud-preview-description">Brief cues from approved Career Memory while you practice responding naturally.</p>
+    <dialog ref={hudDialogRef} className="hud-preview" aria-labelledby="hud-preview-title" aria-describedby="hud-preview-description" onClose={() => { hudDragRef.current = null; hudTriggerRef.current?.focus(); }}>
+      <div className="hud-preview-heading" onPointerDown={beginHudDrag} onPointerMove={moveHudDrag} onPointerUp={() => { hudDragRef.current = null; }} onLostPointerCapture={() => { hudDragRef.current = null; }}><h2 id="hud-preview-title">VantSide HUD</h2><button type="button" className="hud-preview-close" onClick={() => hudDialogRef.current?.close()} aria-label="Close HUD preview">×</button></div>
+      <p id="hud-preview-description">Mockup: brief cues from approved Career Memory during interview practice.</p>
       <Image src="/hud_overlay.webp" alt="Illustrative simulated interview with VantSide memory cues shown across the top" width={1672} height={941} unoptimized />
-      <p className="hud-preview-caption">Simulated interview preview. Practice mode only.</p>
     </dialog>
     <div className="page-wrap">
       <header className="topbar"><div className="brand-lockup"><BrandMark small /><span>VantSide</span></div><div className="topbar-actions"><button type="button" className="topbar-delete" onClick={startOver} disabled={busy}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5" /></svg>
         Delete my data
       </button></div></header>
-      <section className="journey-heading"><h1>Your experience, when you need it.</h1><p>Build a Career Memory from your resume and conversations. Then use VantSide&apos;s <button ref={hudTriggerRef} type="button" className="hud-preview-trigger" onMouseEnter={openHudPreview} onClick={openHudPreview} aria-haspopup="dialog">HUD<span className="hud-preview-spark" aria-hidden="true">↗</span></button> to recall the right experiences during interview practice.</p></section>
+      <section className="journey-heading"><h1>Your experience, when you need it.</h1><p>Build a Career Memory from your resume and conversations. Then use VantSide&apos;s <button ref={hudTriggerRef} type="button" className="hud-preview-trigger" onClick={openHudPreview} aria-haspopup="dialog">HUD<span className="hud-preview-spark" aria-hidden="true">↗</span></button> during an interview.</p></section>
       <nav className="steps-grid" aria-label="Four steps">
         {([1, 2, 3, 4] as Step[]).map((number) => {
           const title = ["Your Resume", "Let's Talk", "The Opportunity", "Your Interview"][number - 1];
@@ -550,7 +574,7 @@ export function JourneyApp() {
             {["listening", "permission", "processing"].includes(interviewPhase) && <button className="secondary-button" type="button" onClick={pauseInterview}>Pause</button>}
             {(interviewQuestion || ["permission", "listening", "processing"].includes(interviewPhase)) && interviewPhase !== "stopped" && <button className="text-button" type="button" onClick={stopInterview}>Stop interview</button>}
           </div>
-          <div className="conversation"><p className="conversation-prompt">{prompt}</p>{conversation.map((turn, index) => <div key={index} className="conversation-turn"><strong>VantSide:</strong> {turn.question}<br/><strong>You:</strong> {turn.answer}</div>)}</div>
+          <div className="conversation">{interviewQuestion && <p className="conversation-prompt">{interviewQuestion}</p>}{conversation.map((turn, index) => <div key={index} className="conversation-turn"><strong>VantSide:</strong> {turn.question}<br/><strong>You:</strong> {turn.answer}</div>)}</div>
           {interviewQuestion && interviewPhase !== "stopped" && <><button type="button" className="text-button" onClick={() => setKeyboardMode((current) => !current)}>{keyboardMode ? "Use microphone" : "Use keyboard instead"}</button>{(keyboardMode || interviewPhase === "review") && <label className="field-label">{interviewPhase === "review" ? "Review and correct your transcript" : "Type your answer"}<textarea value={answer} maxLength={3000} rows={3} disabled={interviewPhase === "listening" || interviewPhase === "processing" || interviewPhase === "permission"} onChange={(event) => setAnswer(event.target.value)}/></label>}
           <button className="secondary-button" type="button" disabled={!practiceConsent || answer.trim().length < 10 || interviewPhase === "processing" || interviewPhase === "listening" || interviewPhase === "permission"} onClick={() => void submitInterviewAnswer()}>Continue conversation</button></>}
           <div className="memory-editor"><h3>Career Memory</h3>

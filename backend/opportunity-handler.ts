@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { askMeta } from "./meta-request";
+import { askBasetenOpportunity } from "./baseten-request";
 import { opportunityAnalysisSchema, alignCareerFacts } from "../src/lib/opportunity-analysis";
 
 const inputSchema = z.union([
@@ -20,7 +21,10 @@ export async function analyzeOpportunity(body: unknown, fetcher: typeof fetch = 
     content = [{ type: "text", text: "Analyze this job description. Quote short excerpts from the PDF for each requirement." },
       { type: "file", file: { filename: "job-description.pdf", file_data: `data:application/pdf;base64,${bytes.toString("base64")}` } }];
   }
-  const result = await askMeta("Return JSON only: {company,role,seniority?,confidence,requirements:[{id,kind,text,sourceExcerpt}]}. Kinds: responsibility, required, preferred, domain. Extract at most 12 concrete requirements from the supplied job description. Each sourceExcerpt must be a short verbatim quote from that description. Omit seniority unless explicitly supported. If company is absent, use empty string and uncertain confidence. Never fabricate employer, role, requirements or experience. Do not perform web research, score candidates or answer an assessment. Use unique lowercase hyphenated requirement IDs.", content, 1600, fetcher);
+  const instruction = "Return JSON only: {company,role,seniority?,confidence,requirements:[{id,kind,text,sourceExcerpt}]}. Kinds: responsibility, required, preferred, domain. Extract at most 12 concrete requirements from the supplied job description. Each sourceExcerpt must be a short verbatim quote from that description. Omit seniority unless explicitly supported. If company is absent, use empty string and uncertain confidence. Never fabricate employer, role, requirements or experience. Do not perform web research, score candidates or answer an assessment. Use unique lowercase hyphenated requirement IDs.";
+  // Explicit opt-in applies to pasted text only; PDF remains on Meta's multimodal route.
+  const result = typeof content === "string" && process.env.OPPORTUNITY_PROVIDER === "baseten" && process.env.BASETEN_API_KEY
+    ? await askBasetenOpportunity(instruction, content, fetcher, 1600) : await askMeta(instruction, content, 1600, fetcher);
   if (result.error) return { status: 502, body: { error: result.error } };
   const analysis = opportunityAnalysisSchema.safeParse(result.data);
   if (!analysis.success) return { status: 502, body: { error: "The job description could not be read clearly. Try another PDF or paste the text." } };

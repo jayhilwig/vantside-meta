@@ -38,8 +38,9 @@ export async function startInterview(body: unknown, fetcher: typeof fetch = fetc
   );
   if (result.error) return { status: 502, body: { error: result.error } };
   const parsed = openingSchema.safeParse(result.data);
+  if (!parsed.success) console.warn("Interview startup failed", { stage: "schema", fields: parsed.error.issues.map((issue) => issue.path.join(".")).slice(0, 4) });
   return parsed.success ? { status: 200, body: { question: parsed.data.question } }
-    : { status: 502, body: { error: "Meta returned an unreadable opening question." } };
+    : { status: 502, body: { error: "Meta did not return a usable opening question. Try again." } };
 }
 
 export async function continueInterview(body: unknown, fetcher: typeof fetch = fetch, signal?: AbortSignal) {

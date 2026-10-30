@@ -128,15 +128,17 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .hud-preview-trigger:hover, .hud-preview-trigger:focus-visible { color: #064c26; border-bottom-color: var(--action); }
 .hud-preview-spark { display: inline-block; color: var(--action); font-size: 11px; transition: transform .18s ease; }
 .hud-preview-trigger:hover .hud-preview-spark, .hud-preview-trigger:focus-visible .hud-preview-spark { transform: translate(2px, -2px); }
-.hud-preview { width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 18px; border: 1px solid #d7dad3; border-radius: 12px; background: #fff; color: var(--ink); box-shadow: 0 24px 80px #0004; }
+.hud-preview { position: fixed; inset: auto; left: 50%; top: 50%; width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: 0; padding: 18px; overflow: auto; transform: translate(-50%, -50%); border: 1px solid #d7dad3; border-radius: 12px; background: #fff; color: var(--ink); box-shadow: 0 24px 80px #0004; }
+.hud-preview[open] { animation: hud-preview-in .22s ease-out both; }
 .hud-preview::backdrop { background: #0e1513b8; }
-.hud-preview-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
-.hud-preview-heading h2 { margin: 5px 0 0; font-size: 22px; letter-spacing: -.04em; }
+.hud-preview-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; cursor: grab; touch-action: none; user-select: none; }
+.hud-preview-heading:active { cursor: grabbing; }
+.hud-preview-heading h2 { margin: 0; font-size: 22px; letter-spacing: -.04em; }
 .hud-preview-close { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 50%; background: #fff; cursor: pointer; font-size: 23px; line-height: 1; }
 .hud-preview-close:hover { background: #f3f5f0; }
 .hud-preview > p { margin: 8px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .hud-preview img { display: block; width: 100%; height: auto; border-radius: 6px; }
-.hud-preview .hud-preview-caption { margin-bottom: 0; font-size: 10px; }
+@keyframes hud-preview-in { from { opacity: 0; translate: 0 9px; } to { opacity: 1; translate: 0 0; } }
 .cue-enter { animation: cue-in .32s ease both; }
 .journey-heading { padding: 58px 0 35px; }
 .journey-heading h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 58px); font-weight: 600; letter-spacing: -.065em; line-height: 1.08; }
