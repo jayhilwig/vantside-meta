@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { analyzeOpportunity } from "./opportunity-handler";
 import { alignCareerFacts, opportunityAnalysisSchema } from "../src/lib/opportunity-analysis";
-import { approveResumeReview, confirmOpportunity, retainPendingFact } from "../src/lib/journey-memory";
-import { deleteOpportunity, emptyMemoryState } from "./career-memory";
+import { approveResumeReview, confirmOpportunity, opportunityById, retainPendingFact } from "../src/lib/journey-memory";
+import { deleteOpportunity, emptyMemoryState, memoryStateSchema } from "./career-memory";
 
 const analysis = { company: "Example", role: "Platform designer", confidence: "clear",
   seniority: "Senior", requirements: [
@@ -65,6 +65,10 @@ test("PDF JD uses actual file bytes, direct Meta, and preserves source label", a
     };
     const result = await analyzeOpportunity({ filename: "job.pdf", data: pdf, careerFacts: [] }, fetcher);
     assert.equal(result.status, 200);
+    const unavailable = await analyzeOpportunity({ filename: "job.pdf", data: pdf, careerFacts: [] }, async () => new Response("", { status: 503 }));
+    assert.equal(unavailable.status, 502);
+    const retried = await analyzeOpportunity({ filename: "job.pdf", data: pdf, careerFacts: [] }, fetcher);
+    assert.equal(retried.status, 200);
     const invalid = await analyzeOpportunity({ filename: "job.pdf", data: Buffer.from("not a PDF").toString("base64"), careerFacts: [] }, fetcher);
     assert.equal(invalid.status, 400);
   } finally {
@@ -98,4 +102,72 @@ test("job-specific answer stays pending and is removed with its opportunity", ()
   const deleted = deleteOpportunity(withProposal, job.opportunities[0].id);
   assert.equal(deleted.proposals.length, 0);
   assert.equal(deleted.career.sources.length, 0);
+});
+
+test("missing company and ambiguous role remain editable rather than being invented", async () => {
+  const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL, process.env.OPPORTUNITY_PROVIDER];
+  process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1";
+  process.env.META_MODEL = "mock"; delete process.env.OPPORTUNITY_PROVIDER;
+  try {
+    const text = "This opportunity involves Design API platforms and Conduct user research for multiple clients.";
+    const response = { ...analysis, company: "Invented Company", role: "Invented Role", confidence: "clear" };
+    const result = await analyzeOpportunity({ text, careerFacts: [] }, async () => Response.json({ choices: [{ message: { content: JSON.stringify(response) } }] }));
+    assert.equal(result.status, 200);
+    assert.deepEqual((result.body as { analysis: { company: string; role: string; confidence: string } }).analysis,
+      { company: "", role: "", confidence: "uncertain", seniority: undefined, requirements: response.requirements });
+  } finally {
+    for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL", "OPPORTUNITY_PROVIDER"].entries()) {
+      if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+    }
+  }
+});
+
+test("malformed, empty, and ungrounded responses fail without saving; a retry can succeed", async () => {
+  const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL, process.env.OPPORTUNITY_PROVIDER];
+  process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1";
+  process.env.META_MODEL = "mock"; delete process.env.OPPORTUNITY_PROVIDER;
+  try {
+    const input = { text: "Example needs a Senior Platform designer. Design API platforms and Conduct user research.", careerFacts: [] };
+    const incomplete = await analyzeOpportunity(input, async () => Response.json({ choices: [{ message: { content: JSON.stringify({ company: "Example" }) } }] }));
+    assert.equal(incomplete.status, 502);
+    const empty = await analyzeOpportunity(input, async () => Response.json({ choices: [{ message: { content: JSON.stringify({ ...analysis, requirements: [] }) } }] }));
+    assert.equal(empty.status, 502);
+    const failed = await analyzeOpportunity(input, async () => new Response("", { status: 503 }));
+    assert.equal(failed.status, 502);
+    const retry = await analyzeOpportunity(input, async () => Response.json({ choices: [{ message: { content: JSON.stringify(analysis) } }] }));
+    assert.equal(retry.status, 200);
+  } finally {
+    for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL", "OPPORTUNITY_PROVIDER"].entries()) {
+      if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+    }
+  }
+});
+
+test("confirmed opportunity reload retains requirement provenance and selects its own Step 4 context", () => {
+  const career = approveResumeReview(emptyMemoryState(), { profile: { profession: "Designer", seniority: "Senior", careerSummary: "Designed API platforms in product teams." },
+    projects: [{ projectId: "project-1", title: "Platform", facts: [{ id: "fact-1", text: "I designed API platforms", source: "I designed API platforms" }] }] }, "resume.pdf", "2026-10-28T12:00:00.000Z");
+  const aligned = alignCareerFacts(opportunityAnalysisSchema.parse(analysis), career.career.facts);
+  const first = confirmOpportunity(career, { company: "Example", role: "Platform designer", confidence: "clear" },
+    "Example needs a Senior Platform designer. Design API platforms and Conduct user research.", "2026-10-28T12:00:00.000Z", opportunityAnalysisSchema.parse(analysis), aligned, "Pasted job description");
+  const second = confirmOpportunity(first, { company: "Different", role: "Researcher", confidence: "clear" },
+    "Different needs product research and user interviews.", "2026-10-28T12:00:00.000Z");
+  const reopened = memoryStateSchema.parse(JSON.parse(JSON.stringify(second)));
+  const selected = opportunityById(reopened, first.opportunities[0].id);
+  assert.deepEqual(selected?.requirements, analysis.requirements);
+  assert.deepEqual(selected?.alignment?.strengths, [{ requirementId: "api-design", factId: "fact-1" }]);
+  assert.match(selected?.preparationQuestions?.[0] ?? "", /conduct user research/i);
+  assert.equal(opportunityById(reopened, "missing"), undefined);
+  assert.equal(reopened.career.facts.length, 1);
+  assert.notEqual(selected?.id, reopened.opportunities.at(-1)?.id);
+  const reselected = confirmOpportunity(reopened, { company: selected!.company, role: selected!.role, confidence: "clear" },
+    selected!.description, "2026-10-28T12:00:00.000Z", opportunityAnalysisSchema.parse(analysis), aligned, "Pasted job description");
+  assert.equal(reselected.opportunities.at(-1)?.id, selected?.id);
+  assert.equal(memoryStateSchema.parse(JSON.parse(JSON.stringify(reselected))).opportunities.at(-1)?.id, selected?.id);
+});
+
+test("single generic overlap does not claim a career strength", () => {
+  const parsed = opportunityAnalysisSchema.parse(analysis);
+  const alignment = alignCareerFacts(parsed, [{ id: "fact-1", text: "I supported a product platform" }]);
+  assert.equal(alignment.strengths.length, 0);
+  assert.deepEqual(alignment.needsEvidence, ["api-design", "research"]);
 });

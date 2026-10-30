@@ -99,8 +99,8 @@ const server = createServer(async (request, response) => {
       : request.url === "/interview/turn" ? await continueInterview(body, fetch, controller.signal)
       : request.url === "/interview/transcribe" ? await transcribeAnswer(body, fetch, controller.signal)
       : request.url === "/retrieve-cues" ? retrieveCues(body)
-      : request.url === "/decide-hud-cue" ? await decideHudCue(body)
-      : await createCue(body);
+      : request.url === "/decide-hud-cue" ? await decideHudCue(body, fetch, controller.signal)
+      : await createCue(body, fetch, controller.signal);
     if (!controller.signal.aborted) send(response, result.status, result.body);
   } catch {
     if (!controller.signal.aborted) send(response, 502, { error: "Practice request failed. Please try again." });

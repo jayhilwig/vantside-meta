@@ -360,7 +360,10 @@ mod tests {
           "projects":[{"id":"project-1","title":"Onboarding"}],
           "facts":[{"id":"fact-1","projectId":"project-1","kind":"role","text":"Led onboarding work","sourceIds":["source-1"],"approvedAt":"2026-10-28T00:00:00Z"}]},
           "sessions":[{"id":"session-1","status":"paused","startedAt":"2026-10-28T00:00:00Z"}],
-          "opportunities":[{"id":"job-1","company":"Example","role":"Designer","description":"Design onboarding","confirmedAt":"2026-10-28T00:00:00Z"}],
+          "opportunities":[{"id":"job-1","company":"Example","role":"Designer","description":"Design onboarding","confirmedAt":"2026-10-28T00:00:00Z",
+            "sourceLabel":"Pasted job description","requirements":[{"id":"req-1","kind":"responsibility","text":"Design onboarding flows","sourceExcerpt":"Design onboarding flows"}],
+            "alignment":{"strengths":[{"requirementId":"req-1","factId":"fact-1"}],"needsEvidence":[]},
+            "preparationQuestions":["Tell me about onboarding flows you designed."]}],
           "rounds":[{"id":"round-1","opportunityId":"job-1","label":"First round","status":"planned"}],
           "proposals":[{"id":"proposal-1","projectId":"project-1","projectTitle":"Onboarding","kind":"role","text":"Worked with support","sourceIds":["source-2"],"originSessionId":"session-1","proposedAt":"2026-10-28T00:00:00Z"}]})
     }
@@ -401,6 +404,18 @@ mod tests {
         assert_eq!(
             load_at(&restarted).unwrap()["state"]["rounds"][0]["opportunityId"],
             "job-1"
+        );
+        assert_eq!(
+            load_at(&restarted).unwrap()["state"]["opportunities"][0]["requirements"][0]["sourceExcerpt"],
+            "Design onboarding flows"
+        );
+        assert_eq!(
+            load_at(&restarted).unwrap()["state"]["opportunities"][0]["alignment"]["strengths"][0]["factId"],
+            "fact-1"
+        );
+        assert_eq!(
+            load_at(&restarted).unwrap()["state"]["opportunities"][0]["preparationQuestions"][0],
+            "Tell me about onboarding flows you designed."
         );
         assert_eq!(save_at(&mut restarted, &sample(), 1).unwrap(), 2);
         assert_eq!(

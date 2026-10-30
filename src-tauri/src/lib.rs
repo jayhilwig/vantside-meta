@@ -1,6 +1,5 @@
 mod career_store;
 
-#[cfg(target_os = "windows")]
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -17,6 +16,13 @@ pub fn run() {
             career_store::load_career_memory,
             career_store::save_career_memory
         ])
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Some(hud) = window.app_handle().get_webview_window("hud") {
+                    let _ = hud.close();
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while building tauri application");
 }

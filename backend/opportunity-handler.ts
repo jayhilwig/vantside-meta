@@ -21,7 +21,7 @@ export async function analyzeOpportunity(body: unknown, fetcher: typeof fetch = 
     content = [{ type: "text", text: "Analyze this job description. Quote short excerpts from the PDF for each requirement." },
       { type: "file", file: { filename: "job-description.pdf", file_data: `data:application/pdf;base64,${bytes.toString("base64")}` } }];
   }
-  const instruction = "Return JSON only: {company,role,seniority?,confidence,requirements:[{id,kind,text,sourceExcerpt}]}. Kinds: responsibility, required, preferred, domain. Extract at most 12 concrete requirements from the supplied job description. Each sourceExcerpt must be a short verbatim quote from that description. Omit seniority unless explicitly supported. If company is absent, use empty string and uncertain confidence. Never fabricate employer, role, requirements or experience. Do not perform web research, score candidates or answer an assessment. Use unique lowercase hyphenated requirement IDs.";
+  const instruction = "Return JSON only: {company,role,seniority?,confidence,requirements:[{id,kind,text,sourceExcerpt}]}. Kinds: responsibility, required, preferred, domain. Extract 1 to 12 concrete responsibilities, required qualifications or skills, preferred qualifications, and domain expectations actually stated in the job description. Each sourceExcerpt must be a short verbatim quote from that description. Omit seniority unless explicitly supported. If company or role is absent or ambiguous, use an empty string for that field and uncertain confidence; the user will correct it. Never fabricate employer, role, requirements or experience. Do not perform web research, score candidates or answer an assessment. Use unique lowercase hyphenated requirement IDs.";
   // Explicit opt-in applies to pasted text only; PDF remains on Meta's multimodal route.
   const result = typeof content === "string" && process.env.OPPORTUNITY_PROVIDER === "baseten" && process.env.BASETEN_API_KEY
     ? await askBasetenOpportunity(instruction, content, fetcher, 1600) : await askMeta(instruction, content, 1600, fetcher);
@@ -29,8 +29,15 @@ export async function analyzeOpportunity(body: unknown, fetcher: typeof fetch = 
   const analysis = opportunityAnalysisSchema.safeParse(result.data);
   if (!analysis.success) return { status: 502, body: { error: "The job description could not be read clearly. Try another PDF or paste the text." } };
   const requirements = analysis.data.requirements;
-  if (new Set(requirements.map((item) => item.id)).size !== requirements.length ||
-    ("text" in input && requirements.some((item) => !input.text.toLowerCase().includes(item.sourceExcerpt.toLowerCase()))))
+  const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!requirements.length || new Set(requirements.map((item) => item.id)).size !== requirements.length ||
+    ("text" in input && requirements.some((item) => !normalize(input.text).includes(normalize(item.sourceExcerpt)))))
     return { status: 502, body: { error: "Job requirements could not be verified against the supplied text." } };
-  return { status: 200, body: { analysis: analysis.data, alignment: alignCareerFacts(analysis.data, input.careerFacts) } };
+  const grounded = "text" in input ? {
+    company: analysis.data.company && normalize(input.text).includes(normalize(analysis.data.company)) ? analysis.data.company : "",
+    role: analysis.data.role && normalize(input.text).includes(normalize(analysis.data.role)) ? analysis.data.role : "",
+    seniority: analysis.data.seniority && normalize(input.text).includes(normalize(analysis.data.seniority)) ? analysis.data.seniority : undefined,
+  } : { company: analysis.data.company, role: analysis.data.role, seniority: analysis.data.seniority };
+  const reviewed = { ...analysis.data, ...grounded, confidence: grounded.company && grounded.role ? analysis.data.confidence : "uncertain" as const };
+  return { status: 200, body: { analysis: reviewed, alignment: alignCareerFacts(reviewed, input.careerFacts) } };
 }

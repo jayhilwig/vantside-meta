@@ -9,7 +9,7 @@ export const requirementSchema = z.object({
 
 export const opportunityAnalysisSchema = z.object({
   company: z.string().trim().max(100),
-  role: z.string().trim().min(2).max(100),
+  role: z.string().trim().max(100),
   seniority: z.string().trim().min(2).max(80).optional(),
   confidence: z.enum(["clear", "uncertain"]),
   requirements: z.array(requirementSchema).max(12),
@@ -19,12 +19,14 @@ export type OpportunityAnalysis = z.infer<typeof opportunityAnalysisSchema>;
 export type OpportunityRequirement = z.infer<typeof requirementSchema>;
 
 export function alignCareerFacts(analysis: OpportunityAnalysis, facts: ReadonlyArray<{ id: string; text: string }>) {
-  // A lexical match is a lead for review, never proof of qualification or a score.
-  const words = (value: string) => new Set(value.toLowerCase().match(/[a-z]{4,}/g) ?? []);
-  const stop = new Set(["with", "from", "that", "this", "their", "your", "work", "team", "experience", "skills", "ability"]);
+  // Require at least two meaningful terms; a shared generic word is not evidence of a match.
+  const stop = new Set(["with", "from", "that", "this", "their", "your", "work", "team", "experience", "skills", "ability", "strong", "required", "preferred"]);
+  const words = (value: string) => new Set((value.toLowerCase().match(/[a-z]{3,}/g) ?? [])
+    .map((word) => word.replace(/(ing|ed|s)$/, "")).filter((word) => word.length >= 3 && !stop.has(word)));
   const strengths = analysis.requirements.flatMap((requirement) => {
-    const terms = [...words(requirement.text)].filter((word) => !stop.has(word));
-    const matched = facts.find((fact) => terms.some((word) => words(fact.text).has(word)));
+    const terms = words(requirement.text);
+    const matched = facts.map((fact) => ({ fact, overlap: [...terms].filter((word) => words(fact.text).has(word)).length }))
+      .sort((a, b) => b.overlap - a.overlap).find((candidate) => candidate.overlap >= 2)?.fact;
     return matched ? [{ requirementId: requirement.id, factId: matched.id }] : [];
   });
   const supported = new Set(strengths.map((item) => item.requirementId));

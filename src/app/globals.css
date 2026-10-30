@@ -11,6 +11,48 @@
   --soft: #f7f7f4;
 }
 
+html:has(.hud-root), body:has(.hud-root) { background: transparent; }
+.hud-root { min-height: 100vh; padding: 4px; background: transparent; }
+.hud-surface { position: relative; min-height: calc(100vh - 8px); padding: 38px 26px 18px; border: 1px solid rgba(50, 54, 49, .19); border-radius: 22px; background: rgba(250, 251, 249, .91); box-shadow: 0 10px 35px rgba(13, 19, 15, .16); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.hud-drag { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: grid; place-items: center; width: 46px; height: 24px; border: 0; background: transparent; cursor: grab; }
+.hud-drag:active { cursor: grabbing; }
+.hud-drag span { display: grid; grid-template-columns: repeat(3, 4px); gap: 3px; }
+.hud-drag i { width: 4px; height: 4px; border-radius: 50%; background: #858b84; }
+.hud-hide { position: absolute; top: 7px; right: 12px; width: 27px; height: 27px; border: 0; background: transparent; color: #555b54; cursor: pointer; font-size: 20px; line-height: 1; }
+.hud-hide:hover { color: #181c18; }
+.hud-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); min-height: 78px; align-items: center; }
+.hud-fact { min-width: 0; padding: 0 22px; color: #202720; font-size: clamp(13px, 1.35vw, 18px); line-height: 1.35; font-weight: 650; letter-spacing: -.02em; animation: hud-fact-in .25s ease both; }
+.hud-fact + .hud-fact { border-left: 1px solid rgba(50, 54, 49, .2); }
+.hud-number { color: #167f4b; font-weight: 800; }
+.hud-waiting { margin: 0; color: #586158; font-size: 13px; text-align: center; }
+@keyframes hud-fact-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .hud-fact { animation: none; } }
+@media (max-width: 620px) { .hud-surface { padding-inline: 12px; } .hud-fact { padding-inline: 10px; } }
+
+.interview-v1 { max-width: 850px; min-height: calc(100vh - 170px); padding: 54px 0 36px; }
+.interview-v1 h1 { margin: 15px 0 4px; font-size: clamp(32px, 4vw, 52px); line-height: 1.1; letter-spacing: -.055em; font-weight: 600; }
+.interview-company { margin: 0; color: #616660; font-size: 18px; }
+.interview-source { max-width: 650px; margin: 30px 0 24px; color: #686d67; line-height: 1.5; }
+.interview-controls { display: grid; justify-items: start; gap: 19px; padding: 22px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.interview-status { display: flex; align-items: center; gap: 9px; padding: 7px 11px; border: 1px solid var(--border); border-radius: 5px; color: #494e48; font-size: 12px; }
+.interview-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #a3a9a2; }
+.interview-status-dot.listening { background: var(--action); box-shadow: 0 0 0 4px rgba(18,168,91,.14); }
+.interview-status-dot.transcribing, .interview-status-dot.finding { background: #ba820d; }
+.interview-consent { display: flex; align-items: flex-start; gap: 10px; max-width: 650px; color: #444b43; font-size: 12px; line-height: 1.5; }
+.interview-consent input { margin-top: 3px; accent-color: var(--action); }
+.interview-mic { width: min(380px, 100%); }
+.interview-mic select { display: block; width: 100%; margin-top: 7px; }
+.interview-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.interview-guidance { margin: 18px 0; color: #576057; font-size: 12px; }
+.interview-text-fallback { margin: 24px 0; max-width: 500px; color: #576057; font-size: 12px; }
+.interview-text-fallback summary { cursor: pointer; }
+.interview-text-fallback form { display: grid; justify-items: start; gap: 12px; padding-top: 12px; }
+.interview-text-fallback .field-label { width: 100%; }
+.interview-text-fallback input { display: block; width: 100%; margin-top: 7px; }
+.interview-recognized { max-width: 700px; margin: 26px 0; }
+.interview-recognized h2 { margin: 0 0 8px; color: #6b716a; font-size: 11px; text-transform: uppercase; letter-spacing: .09em; }
+.interview-recognized p { margin: 0; font-size: 19px; line-height: 1.45; }
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; background: #fff; }
 body { margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-manrope), Arial, sans-serif; font-size: 14px; }
@@ -168,8 +210,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .microphone-setup { display: flex; align-items: center; gap: 15px; margin: 12px 0; font-size: 11px; color: var(--muted); }
 .microphone-setup select { margin-left: 8px; padding: 5px 32px 5px 8px; }
 .manual-memory { max-width: 760px; margin-top: 20px; padding: 16px; border: 1px solid var(--border); border-radius: 6px; }
-.job-analysis { max-width: 760px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.6; }
-.job-analysis h3 { margin: 16px 0 8px; font-size: 15px; }
+.job-analysis { max-width: 760px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.55; }
+.job-analysis h3, .opportunity-review h3 { margin: 18px 0 8px; font-size: 16px; }
 .job-requirement { padding: 9px 0; border-bottom: 1px solid var(--border); }
 .job-requirement details { color: var(--muted); }
 .job-requirement .text-button { margin-top: 5px; }

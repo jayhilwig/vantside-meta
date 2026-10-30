@@ -12,7 +12,7 @@ const requestSchema = z.union([
       requirements: z.array(requirementSchema).max(12).optional(), preparationQuestions: z.array(z.string().trim().min(10).max(250)).max(5).optional() }).strict() }).strict(),
 ]);
 
-export async function createCue(body: unknown, fetcher: typeof fetch = fetch) {
+export async function createCue(body: unknown, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
   const parsedRequest = requestSchema.safeParse(body);
   if (!parsedRequest.success) {
     return { status: 400, body: { error: "Enter a practice question between 4 and 500 characters." } };
@@ -61,7 +61,7 @@ export async function createCue(body: unknown, fetcher: typeof fetch = fetch) {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       cache: "no-store",
-      signal: AbortSignal.timeout(30_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     });
   } catch {
     return { status: 502, body: { error: "Meta could not be reached. Please try again." } };

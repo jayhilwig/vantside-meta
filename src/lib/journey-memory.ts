@@ -177,11 +177,14 @@ export function confirmOpportunity(state: MemoryState, opportunity: Opportunity,
       seniority: analysis?.seniority, sourceLabel, requirements: analysis?.requirements, alignment: reviewedAlignment,
       preparationQuestions: analysis?.requirements.filter((item) => reviewedAlignment?.needsEvidence.includes(item.id)).slice(0, 3)
         .map((item) => `What past work can you share that relates to ${item.text.toLowerCase()}?`) };
-  return memoryStateSchema.parse({ ...state, opportunities: existing
-    ? state.opportunities.map((item) => item.id === existing.id ? record : item)
-    : [...state.opportunities, record] });
+  // The last record is restored as the active opportunity on the next launch.
+  return memoryStateSchema.parse({ ...state, opportunities: [...state.opportunities.filter((item) => item.id !== existing?.id), record] });
 }
 
 export function removeOpportunity(state: MemoryState, opportunityId: string): MemoryState {
   return deleteOpportunity(state, opportunityId);
+}
+
+export function opportunityById(state: MemoryState, opportunityId: string | null) {
+  return opportunityId ? state.opportunities.find((item) => item.id === opportunityId) : undefined;
 }
