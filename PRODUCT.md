@@ -28,7 +28,7 @@ The current resume proposal also includes explicit title evidence for seniority 
 
 ### 2. Let's Talk
 
-A Meta-powered, spoken foundational interview based on that specific resume and profession—not a job description yet. For a product designer, ask about design decisions, collaboration, projects and outcomes; for another profession, ask appropriate questions about actual work. Follow answers with thoughtful, adaptive prompts.
+A spoken foundational interview based on that specific resume and profession—not a job description yet. The current primary voice path uses GPT-Live for two-way conversation, pending Windows runtime QA; the Meta text path remains an accessibility fallback. For a product designer, ask about design decisions, collaboration, projects and outcomes; for another profession, ask appropriate questions about actual work. Follow answers with thoughtful, adaptive prompts.
 
 Sessions may be brief or extended. The result is an evolving **Career Memory**, not merely a saved transcript. A minimum usable memory is one user-approved project or accomplishment supported by the resume or interview. Extract proposed experiences, decisions, facts, outcomes and supporting source references for user approval. Allow the user to review, revise and remove them. Approved memory and deliberately saved proposals now survive desktop restarts; raw answers, the current question, and unapproved conversation summaries do not.
 
@@ -57,7 +57,7 @@ Do not automatically convert unreviewed conversation content into established ca
 
 ## Hackathon versus future product
 
-**Current technical groundwork:** New desktop shell, loopback-only Meta backend, four-step flow, reviewed PDF fact proposals and professional profile, resume-led Muse Spark questions and follow-ups, turn-based Muse Voice Transcribe microphone answers with text fallback, pending fact review, confirmed opportunity context, personalized cues, and a separately labeled synthetic test mode. SQLite now retains approved memory, short evidence excerpts, deliberately saved pending proposals, session metadata, and confirmed opportunity context on device. Raw audio, full transcripts, and automatic model summaries are not saved. Windows runtime, microphone, and packaged desktop Meta calls still need manual verification.
+**Current technical groundwork:** New desktop shell, loopback-only backend, four-step flow, reviewed PDF fact proposals and professional profile, GPT-Live WebRTC foundational interview path with an opt-in Meta text/turn-based fallback, pending fact review, confirmed opportunity context, personalized cues, and a separately labeled synthetic test mode. SQLite retains approved memory, short evidence excerpts, deliberately saved pending proposals, session metadata, and confirmed opportunity context on device. Raw audio and full transcripts are not saved. The GPT-Live conversation and device behavior still need manual Windows/Tauri verification.
 
 **Hackathon priority:** Resume ingestion, profession-aware foundational voice interview, a small approved and reusable Career Memory, one opportunity, and a working voice-to-visual-cue practice experience. Build one convincing end-to-end flow before secondary screens.
 

@@ -3,20 +3,23 @@
 import { ChangeEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { BrandMark, OpeningSequence, PracticeApp } from "./practice-app";
-import { startAnswerRecording, type AnswerRecorder } from "@/lib/record-answer";
+import { startLiveInterview, type LiveInterview, type LiveStatus } from "@/lib/live-interview";
+import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, interviewEncouragement, interviewTime } from "@/lib/interview-timing";
 import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-schema";
 import type { OpportunityAnalysis } from "@/lib/opportunity-analysis";
-import { dismissProposal, emptyMemoryState, type MemoryState } from "../../backend/career-memory";
+import { emptyMemoryState, type MemoryState } from "../../backend/career-memory";
 import { hasDesktopStorage, loadCareerMemory, saveCareerMemory } from "@/lib/career-memory-storage";
-import { approvedProjects, approveInterviewFact, approveManualCareerFact, approveResumeReview,
+import { approvedProjects, approveInterviewBatch, approveManualCareerFact, approveResumeReview, currentReviewBatch, dismissInterviewBatch,
   confirmOpportunity, newMemoryId, pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume,
   retainPendingFact, saveInterviewSession, type PendingInterviewFact } from "@/lib/journey-memory";
 
 type Step = 1 | 2 | 3 | 4;
 type ResumeProposal = { profile: CareerProfile; projects: MemoryProject[] };
 type MemoryProposal = PendingInterviewFact;
-type InterviewPhase = "idle" | "permission" | "listening" | "processing" | "review" | "paused" | "stopped" | "error";
 const api = (process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
+const seniorityChoices = ["Not specified", "Entry Level", "Junior", "Mid-Level", "Senior", "Staff", "Principal", "Executive"];
+const suggestedSpeakingSeconds = 120;
+const normalizeFact = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 async function fileData(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -63,28 +66,28 @@ export function JourneyApp() {
   const [jobAnalysis, setJobAnalysis] = useState<OpportunityAnalysis | null>(null);
   const [jobAlignment, setJobAlignment] = useState<{ strengths: Array<{ requirementId: string; factId: string }>; needsEvidence: string[] } | null>(null);
   const [jobAnswer, setJobAnswer] = useState("");
-  const [keyboardMode, setKeyboardMode] = useState(false);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [microphoneListAuthorized, setMicrophoneListAuthorized] = useState(false);
   const [microphoneId, setMicrophoneId] = useState("");
   const [microphoneStatus, setMicrophoneStatus] = useState("");
   const [confirmedOpportunity, setConfirmedOpportunity] = useState<Opportunity | null>(null);
-  const [answer, setAnswer] = useState("");
-  const [conversation, setConversation] = useState<Array<{ question: string; answer: string }>>([]);
   const [projectTitle, setProjectTitle] = useState("");
   const [projectFact, setProjectFact] = useState("");
   const [talkSaved, setTalkSaved] = useState(false);
-  const [interviewQuestion, setInterviewQuestion] = useState("");
-  const [interviewSummary, setInterviewSummary] = useState("");
   const [memoryProposals, setMemoryProposals] = useState<MemoryProposal[]>([]);
-  const [interviewPhase, setInterviewPhase] = useState<InterviewPhase>("idle");
+  const [liveStatus, setLiveStatus] = useState<LiveStatus | "ready">("ready");
+  const liveRef = useRef<LiveInterview | null>(null);
+  const endLiveRef = useRef<() => Promise<void>>(async () => {});
+  const liveStartRef = useRef<AbortController | null>(null);
+  const [liveLevel, setLiveLevel] = useState(0);
+  const [liveElapsed, setLiveElapsed] = useState(0);
+  const [liveSpeakingSeconds, setLiveSpeakingSeconds] = useState(0);
+  const liveClockRef = useRef(emptyInterviewClock());
   const [interviewError, setInterviewError] = useState("");
-  const [practiceConsent, setPracticeConsent] = useState(false);
-  const recorderRef = useRef<AnswerRecorder | null>(null);
-  const micRequestRef = useRef<AbortController | null>(null);
-  const requestRef = useRef<AbortController | null>(null);
-  const recordTimerRef = useRef<number | null>(null);
-  const generationRef = useRef(0);
+  const pendingLiveTranscriptRef = useRef("");
+  const liveProposalRequestRef = useRef<AbortController | null>(null);
+  const [canRetryLiveProposals, setCanRetryLiveProposals] = useState(false);
+  const [reviewingLiveProposals, setReviewingLiveProposals] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [savedNotice, setSavedNotice] = useState(false);
@@ -174,132 +177,132 @@ export function JourneyApp() {
   }
 
   function cancelActive() {
-    generationRef.current++;
-    micRequestRef.current?.abort(); micRequestRef.current = null;
-    recorderRef.current?.discard(); recorderRef.current = null;
-    requestRef.current?.abort(); requestRef.current = null;
-    if (recordTimerRef.current !== null) window.clearTimeout(recordTimerRef.current);
-    recordTimerRef.current = null;
+    liveProposalRequestRef.current?.abort(); liveProposalRequestRef.current = null;
+    liveStartRef.current?.abort(); liveStartRef.current = null;
+    const live = liveRef.current; liveRef.current = null; live?.close();
   }
 
   useEffect(() => () => {
-    micRequestRef.current?.abort(); recorderRef.current?.discard(); requestRef.current?.abort();
-    if (recordTimerRef.current !== null) window.clearTimeout(recordTimerRef.current);
+    liveStartRef.current?.abort(); liveRef.current?.close();
+    liveProposalRequestRef.current?.abort();
   }, []);
+
+  useEffect(() => { endLiveRef.current = endLiveInterview; });
+
+  useEffect(() => {
+    const active = ["listening", "user-speaking", "speaking"].includes(liveStatus);
+    liveClockRef.current = advanceInterviewClock(liveClockRef.current, liveStatus, Date.now());
+    if (!active) return;
+    const tick = window.setInterval(() => {
+      const { elapsed, speaking } = interviewClockSeconds(liveClockRef.current, Date.now());
+      setLiveElapsed(elapsed); setLiveSpeakingSeconds(speaking);
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [liveStatus]);
 
   useEffect(() => {
     const stopHiddenCapture = () => {
       if (document.visibilityState !== "hidden") return;
-      micRequestRef.current?.abort(); recorderRef.current?.discard(); requestRef.current?.abort();
-      micRequestRef.current = null; recorderRef.current = null; requestRef.current = null;
-      generationRef.current++;
-      if (recordTimerRef.current !== null) window.clearTimeout(recordTimerRef.current);
-      recordTimerRef.current = null;
-      setInterviewPhase((phase) => ["permission", "listening", "processing"].includes(phase) ? "paused" : phase);
+      if (liveRef.current || liveStartRef.current) void endLiveRef.current();
     };
     document.addEventListener("visibilitychange", stopHiddenCapture);
     return () => document.removeEventListener("visibilitychange", stopHiddenCapture);
   }, []);
 
-  async function beginInterview() {
-    if (!approvedProfile || !approved.length) return;
-    if (!practiceConsent) {
-      if (!window.confirm("Start a practice interview? Only record with everyone’s consent and where recording and AI use are allowed.")) return;
-      setPracticeConsent(true);
-    }
-    if (interviewQuestion) { setInterviewPhase("idle"); return; }
-    const request = new AbortController(); requestRef.current = request;
-    const generation = ++generationRef.current;
-    setInterviewPhase("processing"); setInterviewError("");
+  async function beginLiveInterview() {
+    if (!approvedProfile || !approved.length || liveRef.current || liveStartRef.current) return;
+    pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false);
+    liveClockRef.current = emptyInterviewClock(); setLiveElapsed(0); setLiveSpeakingSeconds(0);
+    const controller = new AbortController(); liveStartRef.current = controller;
+    setLiveStatus("connecting"); setInterviewError("");
     try {
-      const result = await post<{ question: string }>("/interview/start", { profile: approvedProfile, projects: approved }, request.signal);
-      if (generation !== generationRef.current) return;
+      const live = await startLiveInterview({ microphoneId, outputId, signal: controller.signal,
+        createSession: async (sdp) => post<{ sdp: string }>("/interview/live/session", { sdp, profile: approvedProfile, projects: approved }, controller.signal),
+        onStatus: (status) => { setLiveStatus(status); if (status === "ended" && liveRef.current) void endLiveInterview(); }, onLevel: setLiveLevel,
+        onError: (message) => { liveRef.current = null; setInterviewError(message); setLiveStatus("error"); },
+      });
+      if (controller.signal.aborted) { live.close(); return; }
+      liveRef.current = live;
       activeSessionRef.current = newMemoryId("session");
-      setInterviewQuestion(result.question); setInterviewPhase("idle");
     } catch (cause) {
-      if (generation !== generationRef.current) return;
-      setInterviewError(cause instanceof Error ? cause.message : "Could not start the interview."); setInterviewPhase("error");
-    } finally { if (requestRef.current === request) requestRef.current = null; }
+      if (!controller.signal.aborted) {
+        const name = cause instanceof Error ? cause.name : "";
+        setInterviewError(name === "NotAllowedError" ? "Microphone access was denied. Allow access and try again."
+          : name === "NotFoundError" ? "The selected microphone is unavailable. Choose another device."
+          : cause instanceof Error ? cause.message : "Voice could not start. Check your microphone and connection.");
+        setLiveStatus("error");
+      }
+    } finally { if (liveStartRef.current === controller) liveStartRef.current = null; }
   }
 
-  async function recordAnswer() {
-    const permission = new AbortController(); micRequestRef.current = permission;
-    const generation = ++generationRef.current;
-    setInterviewPhase("permission"); setInterviewError("");
+  async function endLiveInterview() {
+    const live = liveRef.current;
+    liveStartRef.current?.abort(); liveStartRef.current = null;
+    liveRef.current = null;
+    const transcript = live?.userSpeech().trim() ?? "";
+    live?.close(); setLiveStatus("ended"); setLiveLevel(0);
+    if (transcript.length < 10) { setInterviewError("The session ended, but no reviewable answer was captured."); return; }
+    pendingLiveTranscriptRef.current = transcript;
+    await prepareLiveProposals();
+  }
+
+  async function prepareLiveProposals() {
+    const transcript = pendingLiveTranscriptRef.current;
+    if (!transcript) return;
+    const request = new AbortController(); liveProposalRequestRef.current = request;
+    setCanRetryLiveProposals(false); setReviewingLiveProposals(true); setInterviewError("");
     try {
-      const recorder = await startAnswerRecording(permission.signal, microphoneId || undefined);
-      if (generation !== generationRef.current) { recorder.discard(); return; }
-      recorderRef.current = recorder; setInterviewPhase("listening");
-      recordTimerRef.current = window.setTimeout(() => { void finishAnswer(); }, 60_000);
+      const result = await post<{ proposals: Array<Pick<MemoryProposal, "title" | "text" | "source">> }>("/interview/live/proposals", { transcript }, request.signal);
+      if (request.signal.aborted) return;
+      const sessionId = activeSessionRef.current ?? newMemoryId("session"); activeSessionRef.current = sessionId;
+      const existing = new Set([...memoryRef.current.career.facts.map((fact) => normalizeFact(fact.text)), ...memoryRef.current.proposals.map((fact) => normalizeFact(fact.text))]);
+      const candidates = result.proposals.filter((item) => { const key = normalizeFact(item.text); if (existing.has(key)) return false; existing.add(key); return true; })
+        .map((item) => ({ ...item, id: newMemoryId("fact"), sessionId, answer: item.source }));
+      if (candidates.length) {
+        setMemoryProposals((old) => [...old, ...candidates]);
+        const next = await commitMemory((state) => candidates.reduce((current, item) => retainPendingFact(current, item, new Date().toISOString()), state));
+        setMemoryProposals(pendingInterviewFacts(next));
+      }
+      pendingLiveTranscriptRef.current = "";
     } catch (cause) {
-      if (generation !== generationRef.current) return;
-      setInterviewError(cause instanceof Error ? cause.message : "Microphone permission was denied."); setInterviewPhase("error");
-    }
+      if (request.signal.aborted) return;
+      setInterviewError(cause instanceof Error ? cause.message : "Could not prepare memory proposals.");
+      setCanRetryLiveProposals(true);
+    } finally { if (liveProposalRequestRef.current === request) liveProposalRequestRef.current = null; setReviewingLiveProposals(false); }
   }
 
-  async function finishAnswer() {
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    recorderRef.current = null;
-    if (recordTimerRef.current !== null) window.clearTimeout(recordTimerRef.current);
-    recordTimerRef.current = null;
-    let audio: string;
-    try { audio = recorder.finish(); micRequestRef.current = null; } catch (cause) {
-      micRequestRef.current = null;
-      setInterviewError(cause instanceof Error ? cause.message : "Record a longer answer."); setInterviewPhase("error"); return;
-    }
-    const request = new AbortController(); requestRef.current = request;
-    const generation = ++generationRef.current;
-    setInterviewPhase("processing"); setInterviewError("");
-    try {
-      const result = await post<{ transcript: string }>("/interview/transcribe", { audio }, request.signal);
-      if (generation !== generationRef.current) return;
-      setAnswer(result.transcript); setInterviewPhase("review");
-    } catch (cause) {
-      if (generation !== generationRef.current) return;
-      setInterviewError(cause instanceof Error ? cause.message : "Transcription failed."); setInterviewPhase("error");
-    } finally { if (requestRef.current === request) requestRef.current = null; }
-  }
-
-  async function submitInterviewAnswer() {
-    if (!approvedProfile || !interviewQuestion || answer.trim().length < 10) return;
-    const responseText = answer.trim();
-    const request = new AbortController(); requestRef.current = request;
-    const generation = ++generationRef.current;
-    setInterviewPhase("processing"); setInterviewError("");
-    try {
-      const result = await post<{ question: string; summary: string; proposals: Array<Pick<MemoryProposal, "title" | "text" | "source">> }>("/interview/turn",
-        { profile: approvedProfile, projects: approved, question: interviewQuestion, answer: responseText, summary: interviewSummary }, request.signal);
-      if (generation !== generationRef.current) return;
-      setConversation((old) => [...old, { question: interviewQuestion, answer: responseText }]); setAnswer("");
-      setInterviewQuestion(result.question); setInterviewSummary(result.summary);
-      const sessionId = activeSessionRef.current ?? newMemoryId("session");
-      activeSessionRef.current = sessionId;
-      setMemoryProposals((old) => [...old, ...result.proposals.map((item) => ({ ...item,
-        id: newMemoryId("fact"), sessionId, answer: responseText }))]); setInterviewPhase("idle");
-    } catch (cause) {
-      if (generation !== generationRef.current) return;
-      setInterviewError(cause instanceof Error ? cause.message : "Could not continue the conversation."); setInterviewPhase("error");
-    } finally { if (requestRef.current === request) requestRef.current = null; }
-  }
-
-  function pauseInterview() { cancelActive(); setInterviewPhase("paused"); }
+  function pauseInterview() { if (liveRef.current) { liveRef.current.pause(); setLiveStatus("paused"); } }
   function stopInterview() {
-    cancelActive(); setInterviewPhase("stopped"); setAnswer(""); setPracticeConsent(false);
-    setConversation([]); setInterviewSummary(""); setInterviewQuestion("");
-    const sessionId = activeSessionRef.current; activeSessionRef.current = null;
-    if (sessionId && memoryRef.current.sessions.some((session) => session.id === sessionId)) {
-      void commitMemory((state) => saveInterviewSession(state, sessionId, new Date().toISOString(), "cancelled"))
-        .catch(() => setError("The interview stopped, but its saved session status could not be updated."));
-    }
+    if (liveRef.current || liveStartRef.current) void endLiveInterview();
   }
 
-  function approveMemoryProposal(index: number) {
-    const proposal = memoryProposals[index]; if (!proposal?.text.trim()) return;
+  function acceptReviewBatch() {
+    const batch = currentReviewBatch(memoryProposals);
+    if (!batch.length) return;
     void run(async () => {
-      const next = await commitMemory((state) => approveInterviewFact(state, proposal, new Date().toISOString()));
-      setApproved(approvedProjects(next));
-      setMemoryProposals((old) => old.filter((item) => item.id !== proposal.id));
+      const next = await commitMemory((state) => approveInterviewBatch(state, batch, new Date().toISOString()));
+      setApproved(approvedProjects(next)); setMemoryProposals(pendingInterviewFacts(next));
+      pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false);
+    });
+  }
+
+  function discardReviewBatch() {
+    const batch = currentReviewBatch(memoryProposals);
+    if (!batch.length) return;
+    void run(async () => {
+      const next = await commitMemory((state) => dismissInterviewBatch(state, batch));
+      setMemoryProposals(pendingInterviewFacts(next));
+      pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false);
+    });
+  }
+
+  function removeApprovedProject(projectId: string) {
+    void run(async () => {
+      const next = await commitMemory((state) => removeCareerProject(state, projectId));
+      setApproved(approvedProjects(next)); setJobAlignment(next.opportunities.at(-1)?.alignment ?? null);
+      setMemoryProposals(pendingInterviewFacts(next)); setResumeApproved(Boolean(next.career.identity));
+      setResumeName(next.career.materials.filter((material) => material.kind === "resume").at(-1)?.label ?? "");
+      if (!next.career.identity) setApprovedProfile(null);
     });
   }
 
@@ -347,7 +350,6 @@ export function JourneyApp() {
     void run(async () => {
       const next = await commitMemory((state) => approveResumeReview(state, reviewed, resumeName, new Date().toISOString()));
       cancelActive(); activeSessionRef.current = null;
-      setInterviewPhase("idle"); setInterviewQuestion(""); setInterviewSummary(""); setConversation([]); setAnswer(""); setPracticeConsent(false);
       setApproved(approvedProjects(next)); setApprovedProfile(reviewed.profile);
       setResumeApproved(true); setStep(2); setStepTwoActivated(true);
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
@@ -437,9 +439,10 @@ export function JourneyApp() {
         setOutputName(devices.find((device) => device.kind === "audiooutput" && device.deviceId === "default")?.label || "System default");
         setMicrophoneStatus("Microphone test running");
         await new Promise((resolve) => window.setTimeout(resolve, 3000));
-        setMicrophoneStatus("Microphone ready");
+        setMicrophoneStatus("");
       } finally {
         if (meter !== undefined) window.clearInterval(meter);
+        setMicrophoneLevel(0);
         stream.getTracks().forEach((track) => track.stop());
         await context.close();
       }
@@ -448,6 +451,7 @@ export function JourneyApp() {
 
   async function testSpeaker() {
     if (speakerTestRef.current) return;
+    setSpeakerStatus("");
     const audio = new Audio("/speaker-test.mp3");
     let settle = () => {};
     const finished = new Promise<"ended" | "cancelled">((resolve, reject) => {
@@ -466,7 +470,7 @@ export function JourneyApp() {
       await audio.play();
       if (speakerTestRef.current?.audio !== audio) return;
       setSpeakerStatus("Playing speaker test");
-      if (await finished === "ended" && speakerTestRef.current?.audio === audio) setSpeakerStatus("Speaker test complete");
+      if (await finished === "ended" && speakerTestRef.current?.audio === audio) setSpeakerStatus("");
     } catch (cause) {
       if (speakerTestRef.current?.audio === audio) setSpeakerStatus(cause instanceof Error ? cause.message : "Speaker test unavailable.");
     } finally {
@@ -482,13 +486,13 @@ export function JourneyApp() {
   function startOver() {
     if (!window.confirm("Delete all saved Career Memory, proposals, sessions, and opportunities from this device?")) return;
     cancelActive();
+    pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false);
     void run(async () => {
       await commitMemory(() => emptyMemoryState());
       activeSessionRef.current = null; setApproved([]); setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null);
-      setMemoryProposals([]); setConversation([]); setInterviewQuestion(""); setInterviewSummary(""); setInterviewPhase("stopped");
-      setAnswer(""); setPracticeConsent(false); setTalkSaved(false); setConfirmedOpportunity(null); setOpportunityDraft(null);
+      setMemoryProposals([]); setTalkSaved(false); setConfirmedOpportunity(null); setOpportunityDraft(null);
       setOpportunityInput(""); setOpportunityPdfName(""); setJobAnalysis(null); setJobAlignment(null); setJobAnswer("");
-      setProjectTitle(""); setProjectFact(""); setSavedNotice(false); setKeyboardMode(false); setMicrophones([]); setMicrophoneId(""); setMicrophoneStatus(""); setStep(1);
+      setProjectTitle(""); setProjectFact(""); setSavedNotice(false); setMicrophones([]); setMicrophoneId(""); setMicrophoneStatus(""); setStep(1);
       setNewProjectId(""); setMicrophoneLevel(0); setManualError("");
     });
   }
@@ -517,6 +521,9 @@ export function JourneyApp() {
       preparationQuestions: memoryRef.current.opportunities.at(-1)?.preparationQuestions } : undefined}
     onBack={() => setPractice(null)} />;
 
+  const liveRunning = ["connecting", "listening", "user-speaking", "speaking", "paused"].includes(liveStatus);
+  const reviewBatch = currentReviewBatch(memoryProposals);
+
   return <main className="app-shell">
     {intro && <OpeningSequence onFinish={closeIntro} />}
     <dialog ref={hudDialogRef} className="hud-preview" aria-labelledby="hud-preview-title" aria-describedby="hud-preview-description" onClose={() => { hudDragRef.current = null; hudTriggerRef.current?.focus(); }}>
@@ -537,7 +544,7 @@ export function JourneyApp() {
           const complete = number === 1 ? resumeApproved : number === 2 ? talkSaved && hasMemory : number === 3 ? !!confirmedOpportunity : false;
           const description = ["Establish your professional background.", "Share deeper experiences to build your Career Memory.", "Explore how your experience connects to a specific job.", "Practice for the role and identify supported strengths and areas to explore."][number - 1];
           return <button key={number} type="button" className={`step-card${step === number ? " active" : ""}${number === 2 && stepTwoActivated ? " step-activated" : ""}`} disabled={locked}
-            onClick={() => { if (step === 2 && number !== 2) pauseInterview(); setStep(number); }} aria-current={step === number ? "step" : undefined}>
+            onClick={() => { if (step === 2 && number > 2 && (reviewBatch.length || liveRunning || reviewingLiveProposals || canRetryLiveProposals)) { setError(liveRunning ? "End the interview and review new facts before continuing." : reviewBatch.length ? "Accept or discard the new facts before continuing." : "Finish or discard the memory review before continuing."); return; } if (step === 2 && number !== 2 && (liveRef.current || liveStartRef.current)) void endLiveInterview(); setStep(number); }} aria-current={step === number ? "step" : undefined}>
             <span className="step-card-top"><span className="step-card-number">0{number}</span>{complete && <span className="step-card-check" aria-label="Complete">✓</span>}{locked && <span className="step-card-lock" aria-label="Locked"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1" stroke="currentColor"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor"/></svg></span>}</span><strong>{title}</strong><span className="step-card-description">{description}</span>
           </button>;
         })}
@@ -550,7 +557,7 @@ export function JourneyApp() {
           {resumeApproved && !proposal && <div className="approved-resume"><p>{approvedProfile?.profession} · {approvedProfile?.seniority}</p>{approved.filter((project) => project.dates).map((project) => <p key={project.projectId}>{project.title} · {project.dates}</p>)}</div>}
           {proposal && <div className="review-list"><div className="career-summary"><h3>Career Summary</h3>
             <div className="profile-review"><label className="field-label">Profession<input value={proposal.profile.profession} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, profession: event.target.value } }); }}/></label>
-            <label className="field-label">Seniority<input value={proposal.profile.seniority} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value, senioritySource: undefined } }); }}/></label>
+            <label className="field-label">Seniority<select value={seniorityChoices.includes(proposal.profile.seniority) ? proposal.profile.seniority : "Other"} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value, senioritySource: undefined } }); }}>{seniorityChoices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}<option value="Other">Other</option></select>{!seniorityChoices.includes(proposal.profile.seniority) && <input aria-label="Other seniority" value={proposal.profile.seniority === "Other" ? "" : proposal.profile.seniority} maxLength={100} placeholder="Enter seniority" onChange={(event) => setProposal((old) => old && { ...old, profile: { ...old.profile, seniority: event.target.value, senioritySource: undefined } })}/>}</label>
             <label className="field-label career-overview">Career overview<textarea value={proposal.profile.careerSummary} maxLength={500} rows={2} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, profile: { ...old.profile, careerSummary: event.target.value } }); }}/></label></div></div>
             {proposal.projects.map((project, pi) => <div className="review-project" key={project.projectId}>
             <div className="review-project-heading"><label>Role or project<input value={project.title} maxLength={100} onChange={(event) => { setResumeApproved(false); setProposal((old) => old && { ...old, projects: old.projects.map((item, index) => index === pi ? { ...item, title: event.target.value } : item) }); }}/></label>
@@ -560,48 +567,44 @@ export function JourneyApp() {
         </>}
         {step === 2 && <>
           <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2 ref={stepTwoHeadingRef} tabIndex={-1}>Tell the story behind the work.</h2></div>
-          <details className="audio-devices"><summary>Audio setup</summary><div className="audio-device-grid">
-            <section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void refreshDevices()} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={microphoneLevel} aria-label="Microphone level" /></div><span className="device-status" role="status">{microphoneStatus || "Ready to test"}</span></section>
-            <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => setOutputId(event.target.value)}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={speakerTesting} onClick={() => void testSpeaker()}>Test speaker</button></div><span className="device-status" role="status">{speakerStatus || "Ready to test"}</span></section>
+          <details className="audio-devices" open><summary>Audio setup</summary><div className="audio-device-grid">
+            <section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void refreshDevices()} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={Math.max(microphoneLevel, liveLevel)} aria-label="Microphone level" /></div>{microphoneStatus && <span className="device-status" role="status">{microphoneStatus}</span>}</section>
+            <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => setOutputId(event.target.value)}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={speakerTesting} onClick={() => void testSpeaker()}>Test speaker</button></div>{speakerStatus && <span className="device-status" role="status">{speakerStatus}</span>}</section>
           </div></details>
+          <span className="sr-only" id="interview-consent-note">Practice interview. Voice input is processed by external AI services. Start only with everyone&apos;s consent and where recording and AI use are allowed.</span>
           {interviewError && <p className="step-error" role="alert">{interviewError}</p>}
-          <div className="interview-controls" aria-live="polite">
-            {!interviewQuestion && <button className="primary-button" type="button" disabled={!approvedProfile || interviewPhase === "processing"} onClick={() => void beginInterview()}>{interviewPhase === "stopped" ? "Start new interview" : "Start interview"}</button>}
-            <div className="interview-status" role="status"><span>Interview status</span><strong>{interviewPhase === "paused" ? "Paused" : interviewPhase === "stopped" ? "Stopped" : interviewPhase === "error" ? "Needs attention" : interviewQuestion || ["permission", "listening", "processing", "review"].includes(interviewPhase) ? "In progress" : "Not started"}</strong>{interviewPhase === "listening" && <em>Recording</em>}</div>
-            {interviewQuestion && !["stopped", "listening", "permission", "processing", "review"].includes(interviewPhase) && <button className="primary-button" type="button" disabled={!practiceConsent} onClick={() => void recordAnswer()}>Record answer</button>}
-            {interviewPhase === "review" && <button className="text-button" type="button" onClick={() => { setAnswer(""); setInterviewPhase("idle"); }}>Discard transcript</button>}
-            {interviewPhase === "listening" && <button className="primary-button" type="button" onClick={() => void finishAnswer()}>Finish answer</button>}
-            {["listening", "permission", "processing"].includes(interviewPhase) && <button className="secondary-button" type="button" onClick={pauseInterview}>Pause</button>}
-            {(interviewQuestion || ["permission", "listening", "processing"].includes(interviewPhase)) && interviewPhase !== "stopped" && <button className="text-button" type="button" onClick={stopInterview}>Stop interview</button>}
+          {canRetryLiveProposals && <div className="inline-actions"><button className="secondary-button" type="button" onClick={() => void prepareLiveProposals()}>Retry memory review</button><button className="text-button" type="button" onClick={() => { pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false); setInterviewError(""); }}>Discard captured answer</button></div>}
+          <div className="live-status" role="status" aria-live="polite"><span className={`live-status-dot ${liveStatus}`} aria-hidden="true" /><span>Interview status</span><strong>{({ ready: "Ready", connecting: "Connecting", listening: "Listening", "user-speaking": "You’re speaking", speaking: "Interviewer speaking", paused: "Paused", ended: "Ended", error: "Error" } as const)[liveStatus]}</strong></div>
+          <div className="interview-controls">
+            {!liveRunning && <button className="primary-button" type="button" disabled={!approvedProfile || canRetryLiveProposals || reviewingLiveProposals} aria-describedby="interview-consent-note" title="Practice only. Voice uses external AI services; start with everyone’s consent." onClick={() => void beginLiveInterview()}>Start Interview</button>}
+            {liveStatus === "paused" && <button className="primary-button" type="button" onClick={() => liveRef.current?.resume()}>Resume</button>}
+            {["listening", "user-speaking", "speaking"].includes(liveStatus) && <button className="secondary-button" type="button" onClick={pauseInterview}>Pause</button>}
+            {liveRunning && <button className="end-interview-button" type="button" onClick={stopInterview} aria-label={`End interview, ${interviewTime(liveElapsed)} elapsed, approximately ${interviewTime(liveSpeakingSeconds)} speaking`} title="Progress reflects approximate speaking time. End Interview is always available."><span>End Interview</span><span className="end-interview-progress" style={{ width: `${Math.min(100, liveSpeakingSeconds / suggestedSpeakingSeconds * 100)}%` }} aria-hidden="true" /></button>}
           </div>
-          <div className="conversation">{interviewQuestion && <p className="conversation-prompt">{interviewQuestion}</p>}{conversation.map((turn, index) => <div key={index} className="conversation-turn"><strong>VantSide:</strong> {turn.question}<br/><strong>You:</strong> {turn.answer}</div>)}</div>
-          {interviewQuestion && interviewPhase !== "stopped" && <><button type="button" className="text-button" onClick={() => setKeyboardMode((current) => !current)}>{keyboardMode ? "Use microphone" : "Use keyboard instead"}</button>{(keyboardMode || interviewPhase === "review") && <label className="field-label">{interviewPhase === "review" ? "Review and correct your transcript" : "Type your answer"}<textarea value={answer} maxLength={3000} rows={3} disabled={interviewPhase === "listening" || interviewPhase === "processing" || interviewPhase === "permission"} onChange={(event) => setAnswer(event.target.value)}/></label>}
-          <button className="secondary-button" type="button" disabled={!practiceConsent || answer.trim().length < 10 || interviewPhase === "processing" || interviewPhase === "listening" || interviewPhase === "permission"} onClick={() => void submitInterviewAnswer()}>Continue conversation</button></>}
-          <div className="memory-editor"><h3>Career Memory</h3>
-            {memoryProposals.map((item, index) => <div className="review-fact" key={`${index}-${item.source}`}><p className="eyebrow">PROPOSED · NOT APPROVED</p><strong>{item.title}</strong><label className="field-label">Review fact<textarea rows={2} maxLength={300} value={item.text} onChange={(event) => setMemoryProposals((old) => old.map((proposal, i) => i === index ? { ...proposal, text: event.target.value } : proposal))}/></label><p>From your answer: “{item.source}”</p><div className="inline-actions"><button className="secondary-button" type="button" disabled={item.text.trim().length < 5} onClick={() => approveMemoryProposal(index)}>Approve</button><button className="text-button" type="button" onClick={() => void run(async () => { await commitMemory((state) => dismissProposal(state, item.id)); setMemoryProposals((old) => old.filter((proposal) => proposal.id !== item.id)); })}>Dismiss</button></div></div>)}
-            {approved.map((project) => <div className={`memory-row${newProjectId === project.projectId ? " memory-new" : ""}`} key={project.projectId}><strong>{project.title}</strong><span>{project.facts.length} approved fact{project.facts.length === 1 ? "" : "s"}</span><button type="button" className="text-button" onClick={() => void run(async () => {
-              const next = await commitMemory((state) => removeCareerProject(state, project.projectId));
-              setApproved(approvedProjects(next)); setJobAlignment(next.opportunities.at(-1)?.alignment ?? null);
-              setMemoryProposals(pendingInterviewFacts(next)); setResumeApproved(Boolean(next.career.identity));
-              setResumeName(next.career.materials.filter((material) => material.kind === "resume").at(-1)?.label ?? "");
-              if (!next.career.identity) setApprovedProfile(null);
-            })}>Remove</button></div>)}
+          {liveRunning && <div className="interview-timing"><time aria-label="Elapsed interview time">{interviewTime(liveElapsed)}</time>{interviewEncouragement(liveElapsed) && <span>{interviewEncouragement(liveElapsed)}</span>}</div>}
+          <section className="memory-section" aria-labelledby="new-memory-heading">
+            <h3 id="new-memory-heading">New from Your Interview</h3>
+            {reviewBatch.length ? <>{reviewBatch.map((item) => <div className="review-fact" key={item.id}><p className="eyebrow">PROPOSED · NOT APPROVED</p><strong>{item.title}</strong><label className="field-label">Fact<textarea rows={2} maxLength={300} value={item.text} onChange={(event) => setMemoryProposals((old) => old.map((proposal) => proposal.id === item.id ? { ...proposal, text: event.target.value } : proposal))}/></label></div>)}
+              <div className="inline-actions"><button className="primary-button" type="button" disabled={busy || reviewingLiveProposals || canRetryLiveProposals} onClick={acceptReviewBatch}>Accept Facts</button><button className="secondary-button dismiss-button" type="button" disabled={busy || reviewingLiveProposals} onClick={discardReviewBatch}>Discard</button></div></> : <p className="detail-note">No new facts to review.</p>}
+          </section>
+          <section className="memory-section" aria-labelledby="career-memory-heading">
+            <h3 id="career-memory-heading">Career Memory <span className="memory-approved-label">Approved · Saved</span></h3>
+            {approved.map((project) => <div className={`memory-project${newProjectId === project.projectId ? " memory-new" : ""}`} key={project.projectId}><div className="memory-row"><strong>{project.title}</strong><button type="button" className="text-button" onClick={() => removeApprovedProject(project.projectId)}>Remove</button></div>{project.facts.map((fact) => <p className="memory-fact" key={fact.id}>{fact.text}</p>)}</div>)}
+          </section>
+          <section className="memory-section" aria-labelledby="add-memory-heading">
+            <h3 id="add-memory-heading">Add Your Own</h3>
             <div className="manual-memory"><label className="field-label">Role or accomplishment<input value={projectTitle} maxLength={100} onChange={(event) => { setProjectTitle(event.target.value); setSavedNotice(false); setManualError(""); }}/></label>
             <label className="field-label">Supporting fact from your own experience<textarea value={projectFact} maxLength={300} rows={2} onChange={(event) => { setProjectFact(event.target.value); setSavedNotice(false); setManualError(""); }}/></label>
             <div className="inline-actions"><button className="secondary-button" type="button" disabled={busy} onClick={addInterviewMemory}>Add to Career Memory</button>{savedNotice && <span className="saved-note" role="status">✓ Saved</span>}</div>{manualError && <p className="step-error" role="alert">{manualError}</p>}</div>
-          </div>
-          <button className="primary-button" type="button" disabled={!hasMemory || busy || interviewPhase === "permission" || interviewPhase === "listening" || interviewPhase === "processing"} onClick={() => {
+          </section>
+          <div className="save-continue"><button className="primary-button" type="button" disabled={!hasMemory || busy || liveRunning || reviewingLiveProposals || canRetryLiveProposals || !!reviewBatch.length} onClick={() => {
             pauseInterview();
             const sessionId = activeSessionRef.current ?? newMemoryId("session"); activeSessionRef.current = sessionId;
             void run(async () => {
-              await commitMemory((state) => {
-                let next = saveInterviewSession(state, sessionId, new Date().toISOString(), "paused");
-                for (const pending of memoryProposals) next = retainPendingFact(next, pending, new Date().toISOString());
-                return next;
-              });
+              await commitMemory((state) => saveInterviewSession(state, sessionId, new Date().toISOString(), "paused"));
               setTalkSaved(true); setStep(3);
             });
-          }}>Save &amp; Continue</button>
+          }}>Save &amp; Continue</button>{!!reviewBatch.length && <span className="detail-note">Accept or discard new facts first.</span>}</div>
           <details className="privacy-details"><summary>Privacy</summary><p>{hasDesktopStorage() ? "Approved Career Memory is saved on this device. Raw audio and full transcripts are not retained." : "This browser preview keeps Career Memory for this session only."}</p></details>
         </>}
         {step === 3 && <>

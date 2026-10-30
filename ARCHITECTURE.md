@@ -1,4 +1,4 @@
-> Product direction (October 27): VantSide's core is resume-derived professional identity → repeatable adaptive foundational voice interviews → approved, persistent Career Memory → job-specific Opportunity Memory → round-specific Interview Memory and visual practice cues. Approved memory now persists locally in the desktop build; the current voice interview remains turn-based and its raw answers remain session-only. Synthetic cue tests are engineering fixtures, not the intended product.
+> Product direction (October 27): VantSide's core is resume-derived professional identity → repeatable adaptive foundational voice interviews → approved, persistent Career Memory → job-specific Opportunity Memory → round-specific Interview Memory and visual practice cues. Approved memory persists locally in the desktop build. GPT-Live WebRTC voice is now the primary Step 2 implementation pending Windows runtime QA; the earlier turn-based path remains an accessibility fallback. Raw audio and full transcripts are session-only. Synthetic cue tests are engineering fixtures, not the intended product.
 
 Opportunity text analysis can explicitly opt into Baseten-hosted Meta Muse Spark Open with `OPPORTUNITY_PROVIDER=baseten` and backend-only `BASETEN_API_KEY`. The default and missing-key path remains direct Meta. Baseten receives the pasted job description and at most 20 approved fact texts/IDs for relevance alignment; returned IDs are checked against the supplied facts. PDF opportunity analysis remains on the existing direct Meta multimodal route. A Baseten failure returns an error without a second paid provider request. The model identifier is `meta-models/muse-spark-open` at `https://inference.baseten.co/v1`; account access is not yet confirmed (the first minimal smoke returned HTTP 403).
 
@@ -8,14 +8,14 @@ Step 4 now has a bounded retrieval layer before Muse Spark cue generation. It se
 
 # VantSide Meta — Technical Architecture
 
-**Goal:** A new, publicly auditable, Meta-native prototype built during the hackathon. The target runtime is Tauri 2 on Windows x64, macOS Intel, and macOS Apple Silicon. Model and voice transport details remain candidates until verified with current official docs and live requests.
+**Goal:** A new, publicly auditable, Meta-centered prototype with GPT-Live foundational voice interviews. The target runtime is Tauri 2 on Windows x64, macOS Intel, and macOS Apple Silicon. Windows voice transport still requires live runtime verification.
 
 ## 1. Stack and boundaries
 - UI: React / Next.js / TypeScript / Tailwind CSS; preserve the current practice view and opener inside a Tauri 2 desktop shell.
 - Current prototype server: `backend/server.ts` exposes `POST /cue`, `POST /extract-resume`, `POST /extract-opportunity`, `POST /interview/start`, `POST /interview/transcribe`, and `POST /interview/turn` on `127.0.0.1` only. The static frontend calls a build-time configured loopback URL. PDF bytes are sent inline to Muse Spark for one-off extraction; no Files API upload or backend persistence is used.
 - Hosted hackathon backend target: a separate HTTPS service with real user/session authentication, durable quotas, and a spending cap. The current loopback service must not be publicly deployed. The shared Meta key remains on the server, never in static assets, the Tauri binary, CI artifacts, or client-side environment variables.
 - Primary inference: Meta Model API, Muse Spark 1.3 for textual/multimodal interpretation and structured cue construction.
-- Voice: Muse Voice Transcribe 1.0 using the documented turn-based `POST /asr/transcribe` path. The Windows WebView captures mono audio only after a user action, encodes 16 kHz PCM WAV in memory, and sends a completed answer through the local backend. The documented realtime WebSocket path remains a later latency improvement.
+- Primary Step 2 voice: GPT-Live-1 over WebRTC. The local backend uses `OPENAI_API_KEY` to exchange the renderer's SDP offer through `POST /v1/live/sessions`; the key never reaches the renderer. Microphone and returned speech use WebRTC media tracks, while the data channel carries session events and transient transcript deltas. The prior turn-based Muse Voice Transcribe and Meta question flow remains an opt-in fallback.
 - Persistence: the Tauri process writes reviewed Career Memory to an app-local SQLite file; the static frontend calls narrow load/save commands. The loopback Meta service does not own the database. Raw audio, full transcripts, the current question, and unapproved model summaries stay in memory.
 - Optional after MVP: Baseten Muse Spark Open for comparison; do not require it for startup or demo.
 
@@ -52,11 +52,11 @@ Clearly labeled synthetic examples + simulated interviewer question
 CURRENT FOUR-STEP PATH (desktop live Meta behavior not yet verified)
 1 Your Resume: PDF -> temporary Meta extraction -> proposed profile and source-linked facts
    -> user review/correction -> approved Career Memory seed
-2 Let's Talk: approved resume -> Muse Spark opening question -> microphone answer
-   -> completed 16 kHz WAV -> local backend -> Muse Voice Transcribe final transcript
-   -> user transcript review -> Muse Spark follow-up + source-quoted fact proposals
+2 Let's Talk: approved resume -> backend-owned GPT-Live WebRTC session
+   -> continuous microphone and interviewer audio with in-memory user transcript deltas
+   -> Meta extraction of short source-quoted pending facts after the session
    -> explicit fact approval -> editable local Career Memory
-   (typed answer follows the same Muse Spark turn path)
+   (opt-in text/turn-based fallback retains the earlier Meta path)
 3 The Opportunity: pasted/uploaded job description -> proposed company -> user confirmation
    -> opportunity context (public research and interviewer suggestions are future work)
 4 Your Interview: text question + approved memory + confirmed opportunity
@@ -149,7 +149,7 @@ In the current four-step flow, a resume upload produces *proposed* facts only; u
 - Zod validates the generated shape and enforces that cited fact IDs belong to the selected synthetic project. A no-match response cannot cite facts.
 - Upstream errors, malformed JSON, and schema failures return a generic user-facing message. Upstream response bodies and keys are not logged or relayed.
 - The opening ribbon and perspective dot field are newly authored SVG/CSS. Reduced-motion preference skips the timed intro and disables motion.
-- The current UI includes inline PDF proposals, user approval, local Career Memory, opportunity confirmation, personalized text cues, and a turn-based foundational voice interview. Voice answers are captured and discarded in memory; no audio is stored. The SQLite model supports interview rounds, though the UI does not yet create them. Streaming voice remains future work.
+- The current UI includes inline PDF proposals, user approval, local Career Memory, opportunity confirmation, personalized text cues, and a GPT-Live WebRTC foundational interview path alongside the earlier turn-based fallback. The local backend exchanges the renderer's SDP offer through `POST /v1/live/sessions` using `OPENAI_API_KEY`; it returns only the SDP answer and opaque session ID. The desktop renderer sends microphone audio and plays returned audio through WebRTC media tracks. The connection has not yet been verified through an actual Windows conversation. Voice transcripts remain in memory; only short, reviewed source excerpts can enter pending Career Memory proposals. No raw audio is stored.
 - Lint, TypeScript, and a Webpack production build passed in Milestone 1. The static desktop build and mocked cue contract have since passed; a packaged Windows runtime and live desktop-to-Meta request remain unverified.
 
 ## 10. Definition of done

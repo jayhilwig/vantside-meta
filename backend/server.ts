@@ -5,6 +5,8 @@ import { decideHudCue } from "./hud-decision";
 import { extractOpportunity, extractResume } from "./extraction-handler";
 import { analyzeOpportunity } from "./opportunity-handler";
 import { startInterview, continueInterview } from "./interview-handler";
+import { createLiveSession } from "./live-handler";
+import { proposeLiveMemory } from "./live-proposals";
 import { transcribeAnswer } from "./transcribe-handler";
 
 const host = "127.0.0.1";
@@ -42,7 +44,7 @@ const server = createServer(async (request, response) => {
     send(response, 403, { error: "This practice API only accepts the local VantSide app." });
     return;
   }
-  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe"]);
+  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals"]);
   if (request.method === "OPTIONS" && routes.has(request.url ?? "")) {
     response.writeHead(204);
     response.end();
@@ -92,6 +94,8 @@ const server = createServer(async (request, response) => {
       : request.url === "/extract-opportunity" ? await extractOpportunity(body)
       : request.url === "/analyze-opportunity" ? await analyzeOpportunity(body)
       : request.url === "/interview/start" ? await startInterview(body, fetch, controller.signal)
+      : request.url === "/interview/live/session" ? await createLiveSession(body, fetch, controller.signal)
+      : request.url === "/interview/live/proposals" ? await proposeLiveMemory(body, fetch, controller.signal)
       : request.url === "/interview/turn" ? await continueInterview(body, fetch, controller.signal)
       : request.url === "/interview/transcribe" ? await transcribeAnswer(body, fetch, controller.signal)
       : request.url === "/retrieve-cues" ? retrieveCues(body)

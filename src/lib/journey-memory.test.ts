@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
-import { approveInterviewFact, approveManualCareerFact, approveManualInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity,
+import { approveInterviewBatch, approveInterviewFact, approveManualCareerFact, approveManualInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity, currentReviewBatch, dismissInterviewBatch,
   pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume, retainPendingFact, saveInterviewSession } from "./journey-memory";
 
 test("removing a resume preserves independently supported interview facts", () => {
@@ -110,4 +110,25 @@ test("removing one opportunity deletes its pending proposal without touching glo
   assert.equal(removed.proposals.length, 0);
   assert.equal(removed.career.facts.length, 1);
   assert.equal(removed.career.sources.some((source) => source.originId === "session-job"), false);
+});
+
+test("edited interview batch approves together, rejects duplicates, and discards only its own proposals", () => {
+  let state = approveResumeReview(emptyMemoryState(), review, "resume.pdf", now);
+  const earlier = { id: "earlier", title: "Research", text: "Mapped customer journeys", source: "Mapped customer journeys", sessionId: "earlier-session" };
+  const first = { id: "first", title: "Launch", text: "Coordinated product design", source: "Coordinated product design", sessionId: "latest-session" };
+  const second = { id: "second", title: "Launch", text: "Aligned support and engineering", source: "Aligned support and engineering", sessionId: "latest-session" };
+  for (const pending of [earlier, first, second]) state = retainPendingFact(state, pending, now);
+  const batch = currentReviewBatch(pendingInterviewFacts(state));
+  assert.deepEqual(batch.map((item) => item.id), ["first", "second"]);
+  const edited = [{ ...batch[0], text: "Coordinated launch design" }, batch[1]];
+  assert.throws(() => approveInterviewBatch(state, [{ ...edited[0], text: earlier.text }, edited[1]], now), /duplicate/i);
+  assert.throws(() => approveInterviewBatch(state, [{ ...edited[0], text: "Increased conversion 40%" }, edited[1]], now), /supporting evidence/i);
+  assert.equal(state.career.facts.length, 1);
+  const approved = approveInterviewBatch(state, edited, now);
+  assert.equal(approved.career.facts.length, 3);
+  assert.deepEqual(approved.proposals.map((item) => item.id), ["earlier"]);
+  assert.equal(approved.career.sources.some((source) => source.excerpt === first.source), true);
+  const discarded = dismissInterviewBatch(state, batch);
+  assert.deepEqual(discarded.proposals.map((item) => item.id), ["earlier"]);
+  assert.equal(discarded.career.facts.length, 1);
 });

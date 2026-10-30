@@ -87,6 +87,30 @@ export function approveInterviewFact(state: MemoryState, pending: PendingIntervi
   return approveProposal(retainPendingFact(state, pending, now), pending.id, now);
 }
 
+export function currentReviewBatch(proposals: PendingInterviewFact[]): PendingInterviewFact[] {
+  const latest = proposals.at(-1);
+  return latest ? proposals.filter((item) => item.sessionId === latest.sessionId && item.opportunityId === latest.opportunityId) : [];
+}
+
+export function approveInterviewBatch(state: MemoryState, batch: PendingInterviewFact[], now: string): MemoryState {
+  if (!batch.length) throw new Error("There are no facts to accept.");
+  const normalize = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const batchIds = new Set(batch.map((item) => item.id));
+  const seen = new Set([...state.career.facts.map((fact) => normalize(fact.text)),
+    ...state.proposals.filter((item) => !batchIds.has(item.id)).map((item) => normalize(item.text))]);
+  for (const item of batch) {
+    const key = normalize(item.text);
+    if (item.title.trim().length < 2 || item.text.trim().length < 5) throw new Error("Review every fact before accepting.");
+    if (seen.has(key)) throw new Error("Remove or edit duplicate facts before accepting.");
+    seen.add(key);
+  }
+  return batch.reduce((current, item) => approveInterviewFact(current, item, now), state);
+}
+
+export function dismissInterviewBatch(state: MemoryState, batch: PendingInterviewFact[]): MemoryState {
+  return batch.reduce((current, item) => dismissProposal(current, item.id), state);
+}
+
 export function approveManualInterviewFact(state: MemoryState, title: string, quote: string, answer: string, sessionId: string, now: string): MemoryState {
   return approveInterviewFact(state, { id: newMemoryId("fact"), title, text: quote, source: quote, answer, sessionId }, now);
 }
