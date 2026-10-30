@@ -18,6 +18,6 @@ export function interviewClockSeconds(clock: InterviewClock, now: number) {
 }
 
 export const interviewTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-export const interviewEncouragement = (seconds: number) => seconds >= 600 ? "10 minutes in — wrap up whenever you’re ready."
-  : seconds >= 420 ? "7 minutes in — keep exploring the details." : seconds >= 300 ? "5 minutes in — take your time."
-  : seconds >= 180 ? "3 minutes in — keep exploring your experience." : "";
+export const interviewEncouragement = (seconds: number) => seconds >= 1800 ? "30 minutes — your Career Memory may be richer for it."
+  : seconds >= 600 ? "10 minutes — more detail can reveal richer Career Memory."
+  : seconds >= 180 ? "3 minutes — keep sharing what you did and why." : "";

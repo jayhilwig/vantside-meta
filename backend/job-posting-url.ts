@@ -1,0 +1,94 @@
+import { lookup } from "node:dns/promises";
+import { request } from "node:https";
+import { isIP } from "node:net";
+
+const maxBytes = 1_000_000;
+const maxRedirects = 3;
+
+export function parseJobUrl(value: string): URL {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error("Enter a valid HTTPS job posting URL."); }
+  if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443") ||
+    !url.hostname.includes(".") || isIP(url.hostname) || url.hostname.endsWith(".local") || url.hostname.endsWith(".internal"))
+    throw new Error("Enter a public HTTPS job posting URL.");
+  return url;
+}
+
+export function isPublicAddress(address: string): boolean {
+  if (isIP(address) === 4) {
+    const [a, b, c] = address.split(".").map(Number);
+    return a !== 0 && a !== 10 && a !== 127 && a < 224 && !(a === 169 && b === 254) &&
+      !(a === 172 && b >= 16 && b <= 31) && !(a === 192 && b === 168) &&
+      !(a === 100 && b >= 64 && b <= 127) && !(a === 192 && b === 0) &&
+      !(a === 192 && b === 88 && c === 99) && !(a === 192 && b === 0 && c === 2) &&
+      !(a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) &&
+      !(a === 203 && b === 0 && c === 113);
+  }
+  if (isIP(address) === 6) return /^(2|3)[0-9a-f]*:/i.test(address) &&
+    !/^(2001:0:|2001:db8:|2002:)/i.test(address) && !address.includes(".");
+  return false;
+}
+
+export function extractJobPage(html: string): string {
+  const cleaned = html.replace(/<!--[^]*?-->/g, " ")
+    .replace(/<(script|style|noscript|nav|header|footer|aside|form|svg)\b[^>]*>[^]*?<\/\1>/gi, " ");
+  const main = cleaned.match(/<(main|article)\b[^>]*>([^]*?)<\/\1>/i)?.[2] ??
+    cleaned.match(/<body\b[^>]*>([^]*?)<\/body>/i)?.[1] ?? cleaned;
+  const text = main.replace(/<\/(p|li|h[1-6]|div|section|br)>/gi, "\n").replace(/<[^>]+>/g, " ")
+    .replace(/&(?:nbsp|amp|lt|gt|quot|#39);/gi, (entity) => ({ "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" })[entity.toLowerCase()] ?? " ")
+    .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+  const jobSection = /\b(responsibilit(?:y|ies)|qualifications?|requirements?|duties|about the role|what you.ll do)\b/i;
+  const jobDetail = /\b(experience|skills?|role|position|candidate|applicant)\b/i;
+  if (text.length < 250 || !jobSection.test(text) || !jobDetail.test(text))
+    throw new Error("This page did not contain a readable job description. Paste the description instead.");
+  return text.slice(0, 15_000);
+}
+
+type Page = { status: number; contentType: string; body: string; location?: string };
+
+async function requestPage(url: URL, address: string, family: 4 | 6): Promise<Page> {
+  return new Promise((resolve, reject) => {
+    const connection = request(url, { method: "GET", timeout: 10_000, maxHeaderSize: 16_384,
+      headers: { Accept: "text/html", "User-Agent": "VantSide/1.0 (job-description import)" },
+      lookup: (_host, _options, callback) => callback(null, address, family),
+    }, (response) => {
+      const chunks: Buffer[] = []; let bytes = 0;
+      response.on("data", (chunk: Buffer) => { bytes += chunk.length; if (bytes > maxBytes) { connection.destroy(new Error("The job page is too large to import.")); return; } chunks.push(chunk); });
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, contentType: String(response.headers["content-type"] ?? ""),
+        body: Buffer.concat(chunks).toString("utf8"), location: response.headers.location }));
+      response.on("error", reject);
+    });
+    connection.on("timeout", () => connection.destroy(new Error("The job page took too long to load.")));
+    connection.on("error", reject);
+    connection.end();
+  });
+}
+
+export async function fetchJobPosting(value: string, deps: {
+  resolve?: typeof lookup; load?: (url: URL, address: string, family: 4 | 6) => Promise<Page>
+} = {}): Promise<{ text: string; url: string }> {
+  let url = parseJobUrl(value);
+  const resolve = deps.resolve ?? lookup;
+  const load = deps.load ?? requestPage;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    let addresses: Array<{ address: string; family: number }>;
+    try { addresses = await resolve(url.hostname, { all: true }); }
+    catch { throw new Error("This job page could not be reached. Paste the description instead."); }
+    if (!addresses.length || addresses.some((item) => !isPublicAddress(item.address)))
+      throw new Error("This job page could not be reached safely. Paste the description instead.");
+    const selected = addresses[0];
+    let page: Page;
+    try { page = await load(url, selected.address, selected.family as 4 | 6); }
+    catch (cause) { throw new Error(cause instanceof Error && /too large|too long/.test(cause.message) ? cause.message : "This job page could not be reached. Paste the description instead."); }
+    if ([301, 302, 303, 307, 308].includes(page.status)) {
+      if (!page.location || hop === maxRedirects) throw new Error("This job page redirected too many times.");
+      url = parseJobUrl(new URL(page.location, url).href);
+      continue;
+    }
+    if (page.status === 401 || page.status === 403) throw new Error("This job page needs sign-in. Paste the description instead.");
+    if (page.status !== 200 || !page.contentType.toLowerCase().includes("text/html"))
+      throw new Error("This job page could not be read. Paste the description instead.");
+    return { text: extractJobPage(page.body), url: url.href };
+  }
+  throw new Error("This job page redirected too many times.");
+}

@@ -1,4 +1,5 @@
 import { personalCueSchema } from "./cue-schema";
+import { localApiHeaders } from "./local-api-auth";
 import type { OpportunityRequirement } from "./opportunity-analysis";
 import type { MemoryProject } from "./session-schema";
 
@@ -13,8 +14,9 @@ export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
   const question = input.question.trim().slice(0, 500);
   if (question.length < 4) return { question, cues: [], reason: "no-match" };
   const post = async (route: string, body: object) => {
+    const headers = typeof window === "undefined" ? { "Content-Type": "application/json" } : await localApiHeaders();
     const response = await fetcher(`${baseUrl.replace(/\/$/, "")}${route}`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: input.signal,
+      method: "POST", headers, body: JSON.stringify(body), signal: input.signal,
     });
     const result: unknown = await response.json();
     if (!response.ok) throw new Error("Cue service is unavailable. Continue practicing or try the next question.");

@@ -5,6 +5,23 @@ import { alignCareerFacts, opportunityAnalysisSchema } from "../src/lib/opportun
 import { approveResumeReview, confirmOpportunity, opportunityById, retainPendingFact } from "../src/lib/journey-memory";
 import { deleteOpportunity, emptyMemoryState, memoryStateSchema } from "./career-memory";
 
+function textPdf(text: string): string {
+  const lines = text.match(/.{1,80}(?:\s|$)/g) ?? [text];
+  const stream = `BT /F1 12 Tf 50 700 Td ${lines.map((line) => `(${line.trim().replace(/[()\\]/g, " ")}) Tj 0 -18 Td`).join(" ")} ET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }
+  const start = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`;
+  return Buffer.from(pdf).toString("base64");
+}
+
 const analysis = { company: "Example", role: "Platform designer", confidence: "clear",
   seniority: "Senior", requirements: [
     { id: "api-design", kind: "required", text: "Design API platforms", sourceExcerpt: "Design API platforms" },
@@ -44,7 +61,7 @@ test("pasted JD requirements retain quoted source and reject invented excerpts",
     assert.equal(result.status, 200);
     assert.deepEqual((result.body as { alignment: { strengths: unknown[]; needsEvidence: string[] } }).alignment.needsEvidence, ["research"]);
     const bad = await analyzeOpportunity({ text: "Example needs a Senior Platform designer with many skills.", careerFacts: [] }, fetcher);
-    assert.equal(bad.status, 502);
+    assert.equal(bad.status, 422);
   } finally {
     for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL"].entries()) {
       if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
@@ -52,15 +69,19 @@ test("pasted JD requirements retain quoted source and reject invented excerpts",
   }
 });
 
-test("PDF JD uses actual file bytes, direct Meta, and preserves source label", async () => {
+test("text-based PDF JD extracts actual text, validates quotes, and permits retry", async () => {
   const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL];
+  const provider = process.env.OPPORTUNITY_PROVIDER; const basetenKey = process.env.BASETEN_API_KEY;
   process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1"; process.env.META_MODEL = "mock";
+  process.env.OPPORTUNITY_PROVIDER = "baseten"; process.env.BASETEN_API_KEY = "mock-secret";
   try {
-    const pdf = Buffer.from("%PDF-1.4\nmock job description").toString("base64");
-    const fetcher: typeof fetch = async (_url, init) => {
+    const pdf = textPdf("Example needs a Senior Platform designer. Design API platforms and Conduct user research. The team builds digital products with engineers and product managers. Candidates collaborate across teams, present designs, learn from customer research, and improve software for global customers.");
+    const fetcher: typeof fetch = async (url, init) => {
+      assert.equal(url, "https://example.invalid/v1/chat/completions");
       const request = JSON.parse(String(init?.body));
       assert.equal(request.max_completion_tokens, 1600);
-      assert.match(JSON.stringify(request.messages), /data:application\/pdf;base64/);
+      assert.match(JSON.stringify(request.messages), /Design API platforms/);
+      assert.doesNotMatch(JSON.stringify(request.messages), /data:application\/pdf;base64/);
       return Response.json({ choices: [{ message: { content: JSON.stringify(analysis) } }] });
     };
     const result = await analyzeOpportunity({ filename: "job.pdf", data: pdf, careerFacts: [] }, fetcher);
@@ -69,9 +90,15 @@ test("PDF JD uses actual file bytes, direct Meta, and preserves source label", a
     assert.equal(unavailable.status, 502);
     const retried = await analyzeOpportunity({ filename: "job.pdf", data: pdf, careerFacts: [] }, fetcher);
     assert.equal(retried.status, 200);
+    const ungrounded = await analyzeOpportunity({ filename: "job.pdf", data: pdf, careerFacts: [] },
+      async () => Response.json({ choices: [{ message: { content: JSON.stringify({ ...analysis,
+        requirements: [{ id: "invented", kind: "required", text: "Manage clinical trials", sourceExcerpt: "Manage clinical trials" }] }) } }] }));
+    assert.equal(ungrounded.status, 422);
     const invalid = await analyzeOpportunity({ filename: "job.pdf", data: Buffer.from("not a PDF").toString("base64"), careerFacts: [] }, fetcher);
     assert.equal(invalid.status, 400);
   } finally {
+    if (provider === undefined) delete process.env.OPPORTUNITY_PROVIDER; else process.env.OPPORTUNITY_PROVIDER = provider;
+    if (basetenKey === undefined) delete process.env.BASETEN_API_KEY; else process.env.BASETEN_API_KEY = basetenKey;
     for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL"].entries()) {
       if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
     }
@@ -122,6 +149,45 @@ test("missing company and ambiguous role remain editable rather than being inven
   }
 });
 
+test("HTTPS job URL content enters the same grounded opportunity pipeline", async () => {
+  const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL, process.env.OPPORTUNITY_PROVIDER];
+  process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1";
+  process.env.META_MODEL = "mock"; delete process.env.OPPORTUNITY_PROVIDER;
+  const text = "Example needs a Senior Platform designer. Design API platforms and Conduct user research.";
+  try {
+    const result = await analyzeOpportunity({ url: "https://jobs.example.com/role", careerFacts: [] },
+      async (_url, init) => { assert.match(String(init?.body), /Design API platforms/); return Response.json({ choices: [{ message: { content: JSON.stringify(analysis) } }] }); },
+      async () => ({ text, url: "https://jobs.example.com/role" }));
+    assert.equal(result.status, 200);
+    assert.equal((result.body as { sourceText: string }).sourceText, text);
+    const inaccessible = await analyzeOpportunity({ url: "https://jobs.example.com/role", careerFacts: [] },
+      async () => { throw new Error("Inference should not run"); }, async () => { throw new Error("This page needs sign-in. Paste the description instead."); });
+    assert.equal(inaccessible.status, 422);
+  } finally {
+    for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL", "OPPORTUNITY_PROVIDER"].entries()) {
+      if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+    }
+  }
+});
+
+test("opportunity analysis accepts harmless response shape variations but still checks source quotes", async () => {
+  const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL, process.env.OPPORTUNITY_PROVIDER];
+  process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1"; process.env.META_MODEL = "mock"; delete process.env.OPPORTUNITY_PROVIDER;
+  try {
+    const text = "Example needs a Senior Platform designer. Design API platforms and Conduct user research.";
+    const response = { analysis: { company: "Example", role: "Platform designer", requirements: [
+      { kind: "required_skill", requirement: "Design API platforms", source_excerpt: "Design API platforms" },
+      { kind: "preferred", text: "Conduct user research", quote: "Conduct user research" } ] } };
+    const result = await analyzeOpportunity({ text, careerFacts: [] }, async () => Response.json({ choices: [{ message: { content: JSON.stringify(response) } }] }));
+    assert.equal(result.status, 200);
+    assert.deepEqual((result.body as { analysis: { requirements: Array<{ id: string }> } }).analysis.requirements.map((item) => item.id), ["requirement-1", "requirement-2"]);
+    const invented = { analysis: { ...response.analysis, requirements: [{ kind: "required", text: "Lead clinical trials", quote: "Lead clinical trials" }] } };
+    assert.equal((await analyzeOpportunity({ text, careerFacts: [] }, async () => Response.json({ choices: [{ message: { content: JSON.stringify(invented) } }] }))).status, 422);
+  } finally { for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL", "OPPORTUNITY_PROVIDER"].entries()) {
+    if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+  } }
+});
+
 test("malformed, empty, and ungrounded responses fail without saving; a retry can succeed", async () => {
   const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL, process.env.OPPORTUNITY_PROVIDER];
   process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1";
@@ -131,7 +197,7 @@ test("malformed, empty, and ungrounded responses fail without saving; a retry ca
     const incomplete = await analyzeOpportunity(input, async () => Response.json({ choices: [{ message: { content: JSON.stringify({ company: "Example" }) } }] }));
     assert.equal(incomplete.status, 502);
     const empty = await analyzeOpportunity(input, async () => Response.json({ choices: [{ message: { content: JSON.stringify({ ...analysis, requirements: [] }) } }] }));
-    assert.equal(empty.status, 502);
+    assert.equal(empty.status, 422);
     const failed = await analyzeOpportunity(input, async () => new Response("", { status: 503 }));
     assert.equal(failed.status, 502);
     const retry = await analyzeOpportunity(input, async () => Response.json({ choices: [{ message: { content: JSON.stringify(analysis) } }] }));

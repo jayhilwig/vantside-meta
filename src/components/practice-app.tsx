@@ -1,4 +1,5 @@
 "use client";
+import { localApiHeaders } from "@/lib/local-api-auth";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { careerExamples } from "@/lib/career-examples";
@@ -118,7 +119,7 @@ export function PracticeApp({ projects, opportunity, onBack }: { projects?: Memo
     try {
       const response = await fetch(`${cueApiBaseUrl.replace(/\/$/, "")}/cue`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await localApiHeaders(),
         body: JSON.stringify(projects && opportunity ? { question: nextQuestion, projects, opportunity } : { question: nextQuestion }),
       });
       const result: { cue?: VisualCue; error?: string } = await response.json();

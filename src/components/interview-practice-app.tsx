@@ -1,4 +1,5 @@
 "use client";
+import { localApiHeaders } from "@/lib/local-api-auth";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { isTauri } from "@tauri-apps/api/core";
@@ -157,7 +158,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
     requestRef.current = controller;
     try {
       const response = await fetch(`${api}/interview/transcribe`, { method: "POST",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audio }), signal: controller.signal });
+        headers: await localApiHeaders(), body: JSON.stringify({ audio }), signal: controller.signal });
       audio = "";
       const result: { transcript?: string; error?: string } = await response.json();
       if (!response.ok || !result.transcript) throw new Error(result.error ?? "The question could not be transcribed. Try again.");

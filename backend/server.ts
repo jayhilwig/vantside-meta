@@ -8,17 +8,12 @@ import { startInterview, continueInterview } from "./interview-handler";
 import { createLiveSession } from "./live-handler";
 import { proposeLiveMemory } from "./live-proposals";
 import { transcribeAnswer } from "./transcribe-handler";
+import { authorized, loadLocalToken, preflightOrigin, validLoopbackHost } from "./local-api-auth";
 
 const host = "127.0.0.1";
 const port = Number(process.env.CUE_API_PORT ?? 8787);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("CUE_API_PORT must be a valid local port.");
-const allowedOrigins = new Set([
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "http://tauri.localhost",
-  "https://tauri.localhost",
-  "tauri://localhost",
-]);
+const localToken = loadLocalToken();
 const maxBodyBytes = 5_500_000;
 const maxPerMinute = 30;
 const maxPerDay = 100;
@@ -33,21 +28,25 @@ function send(response: import("node:http").ServerResponse, status: number, body
 }
 
 const server = createServer(async (request, response) => {
+  if (!validLoopbackHost(request.headers.host, port)) { send(response, 403, { error: "Local backend host was rejected." }); return; }
   const origin = request.headers.origin;
-  if (origin && allowedOrigins.has(origin)) {
-    response.setHeader("Access-Control-Allow-Origin", origin);
+  if (preflightOrigin(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin!);
     response.setHeader("Vary", "Origin");
     response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    response.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  }
-  if (!origin || !allowedOrigins.has(origin)) {
-    send(response, 403, { error: "This practice API only accepts the local VantSide app." });
-    return;
+    response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-VantSide-Session");
   }
   const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals"]);
-  if (request.method === "OPTIONS" && routes.has(request.url ?? "")) {
-    response.writeHead(204);
-    response.end();
+  if (request.method === "OPTIONS" && routes.has(request.url ?? "") && preflightOrigin(origin)) {
+    response.writeHead(204); response.end(); return;
+  }
+  if (!authorized(origin, request.headers["x-vantside-session"] as string | undefined, localToken)) {
+    console.warn("Local API authorization rejected", {
+      origin: origin === undefined ? "missing" : origin === "null" ? "opaque" : preflightOrigin(origin) ? "allowed" : "untrusted",
+      route: routes.has(request.url ?? "") ? request.url : "unknown",
+      stage: "origin-or-token",
+    });
+    send(response, 403, { error: "This practice API only accepts the local VantSide app." });
     return;
   }
   if (request.method !== "POST" || !routes.has(request.url ?? "")) {

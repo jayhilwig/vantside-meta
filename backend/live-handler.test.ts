@@ -3,6 +3,19 @@ import test from "node:test";
 import { createLiveSession } from "./live-handler";
 import { proposeLiveMemory } from "./live-proposals";
 
+test("a finished interview with no grounded new facts returns an empty review", async () => {
+  const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL];
+  process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1"; process.env.META_MODEL = "mock";
+  try {
+    const result = await proposeLiveMemory({ transcript: "I don't have a specific example to share right now." },
+      async () => Response.json({ choices: [{ message: { content: JSON.stringify({ proposals: [] }) } }] }));
+    assert.equal(result.status, 200);
+    assert.deepEqual((result.body as { proposals: unknown[] }).proposals, []);
+  } finally { for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL"].entries()) {
+    if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+  } }
+});
+
 const context = { sdp: "v=0\r\no=- 123 456 IN IP4 127.0.0.1\r\n", profile: { profession: "Designer", seniority: "Senior", careerSummary: "Designed a product launch with customer research." },
   projects: [{ projectId: "launch", title: "Launch", facts: [{ id: "research", text: "Led customer research", source: "Led customer research" }] }] };
 

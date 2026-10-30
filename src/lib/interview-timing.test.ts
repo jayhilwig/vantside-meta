@@ -14,7 +14,9 @@ test("interview timer pauses, resumes, and resets between sessions", () => {
   assert.equal(interviewTime(192), "3:12");
 });
 
-test("encouragement changes at elapsed milestones without promising better memory", () => {
+test("encouragement changes at optional 3, 10, and 30 minute milestones", () => {
   assert.equal(interviewEncouragement(179), "");
-  for (const mark of [180, 300, 420, 600]) assert.match(interviewEncouragement(mark), new RegExp(`${mark / 60} minutes in`));
+  assert.match(interviewEncouragement(180), /3 minutes/);
+  assert.match(interviewEncouragement(600), /10 minutes/);
+  assert.match(interviewEncouragement(1800), /30 minutes/);
 });

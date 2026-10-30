@@ -71,10 +71,11 @@ export const jobOpportunitySchema = z.object({
   description: z.string().trim().min(5).max(15000),
   confirmedAt: timestamp,
   seniority: z.string().trim().min(2).max(80).optional(),
-  sourceLabel: z.string().trim().min(1).max(260).optional(),
+  sourceLabel: z.string().trim().min(1).max(2000).optional(),
   requirements: z.array(z.object({ id, kind: z.enum(["responsibility", "required", "preferred", "domain"]), text: z.string().trim().min(5).max(220), sourceExcerpt: z.string().trim().min(5).max(300) }).strict()).max(12).optional(),
   alignment: z.object({ strengths: z.array(z.object({ requirementId: id, factId: id }).strict()).max(12), needsEvidence: z.array(id).max(12) }).strict().optional(),
   preparationQuestions: z.array(z.string().trim().min(10).max(250)).max(5).optional(),
+  knownInterviewers: z.array(z.object({ id, name: z.string().trim().min(2).max(100).optional(), profileUrl: z.url().max(500) }).strict()).max(10).optional(),
 }).strict();
 
 export const interviewRoundSchema = z.object({

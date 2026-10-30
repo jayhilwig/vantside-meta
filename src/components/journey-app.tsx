@@ -6,12 +6,15 @@ import { BrandMark, OpeningSequence, PracticeApp } from "./practice-app";
 import { InterviewPracticeApp } from "./interview-practice-app";
 import { startLiveInterview, type LiveInterview, type LiveStatus } from "@/lib/live-interview";
 import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, interviewEncouragement, interviewTime } from "@/lib/interview-timing";
+import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
+import { localApiHeaders } from "@/lib/local-api-auth";
+import { isCurrentOperation, visibleStepError } from "@/lib/step-workflow";
 import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-schema";
 import type { OpportunityAnalysis } from "@/lib/opportunity-analysis";
 import { emptyMemoryState, type MemoryState } from "../../backend/career-memory";
 import { hasDesktopStorage, loadCareerMemory, saveCareerMemory } from "@/lib/career-memory-storage";
 import { approvedProjects, approveInterviewBatch, approveManualCareerFact, approveResumeReview, currentReviewBatch, dismissInterviewBatch,
-  confirmOpportunity, newMemoryId, opportunityById, pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume,
+  addKnownInterviewer, confirmOpportunity, newMemoryId, opportunityById, pendingInterviewFacts, removeCareerProject, removeKnownInterviewer, removeOpportunity, removeResume,
   retainPendingFact, saveInterviewSession, type PendingInterviewFact } from "@/lib/journey-memory";
 
 type Step = 1 | 2 | 3 | 4;
@@ -19,7 +22,6 @@ type ResumeProposal = { profile: CareerProfile; projects: MemoryProject[] };
 type MemoryProposal = PendingInterviewFact;
 const api = (process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 const seniorityChoices = ["Not specified", "Entry Level", "Junior", "Mid-Level", "Senior", "Staff", "Principal", "Executive"];
-const suggestedSpeakingSeconds = 120;
 const normalizeFact = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 async function fileData(file: File): Promise<string> {
@@ -33,7 +35,8 @@ async function fileData(file: File): Promise<string> {
 
 async function post<T>(route: string, body: object, signal?: AbortSignal): Promise<T> {
   let response: Response;
-  try { response = await fetch(`${api}${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal }); }
+  const headers = await localApiHeaders();
+  try { response = await fetch(`${api}${route}`, { method: "POST", headers, body: JSON.stringify(body), signal }); }
   catch (cause) { throw new Error(cause instanceof Error && cause.name === "AbortError" ? "Request cancelled." : "Local practice backend is unreachable. Start the backend and try again."); }
   let result: { error?: string } & T;
   try { result = await response.json(); }
@@ -56,7 +59,16 @@ export function JourneyApp() {
   const activeSessionRef = useRef<string | null>(null);
   const [opportunityPdfName, setOpportunityPdfName] = useState("");
   const opportunityPdfRef = useRef<File | null>(null);
-  const [opportunitySource, setOpportunitySource] = useState<"text" | "pdf" | null>(null);
+  const [opportunitySource, setOpportunitySource] = useState<"text" | "url" | "pdf" | null>(null);
+  const [opportunityMethod, setOpportunityMethod] = useState<"text" | "url" | "pdf">("text");
+  const [opportunityUrl, setOpportunityUrl] = useState("");
+  const [opportunityUrlText, setOpportunityUrlText] = useState("");
+  const opportunityRequestRef = useRef<AbortController | null>(null);
+  const operationRef = useRef(0);
+  const [interviewerName, setInterviewerName] = useState("");
+  const [interviewerUrl, setInterviewerUrl] = useState("");
+  const [editingInterviewerId, setEditingInterviewerId] = useState<string | null>(null);
+  const [, setInterviewerVersion] = useState(0);
   const [activeOpportunityId, setActiveOpportunityId] = useState<string | null>(null);
   const [step, setStep] = useState<Step>(1);
   const [practice, setPractice] = useState<"personal" | "synthetic" | null>(null);
@@ -74,6 +86,7 @@ export function JourneyApp() {
   const [microphoneListAuthorized, setMicrophoneListAuthorized] = useState(false);
   const [microphoneId, setMicrophoneId] = useState("");
   const [microphoneStatus, setMicrophoneStatus] = useState("");
+  const [microphoneOutcome, setMicrophoneOutcome] = useState<"pass" | "quiet" | null>(null);
   const [confirmedOpportunity, setConfirmedOpportunity] = useState<Opportunity | null>(null);
   const [projectTitle, setProjectTitle] = useState("");
   const [projectFact, setProjectFact] = useState("");
@@ -85,7 +98,6 @@ export function JourneyApp() {
   const liveStartRef = useRef<AbortController | null>(null);
   const [liveLevel, setLiveLevel] = useState(0);
   const [liveElapsed, setLiveElapsed] = useState(0);
-  const [liveSpeakingSeconds, setLiveSpeakingSeconds] = useState(0);
   const liveClockRef = useRef(emptyInterviewClock());
   const [interviewError, setInterviewError] = useState("");
   const pendingLiveTranscriptRef = useRef("");
@@ -94,6 +106,9 @@ export function JourneyApp() {
   const [reviewingLiveProposals, setReviewingLiveProposals] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [errorOwner, setErrorOwner] = useState<Step>(1);
+  const [processing, setProcessing] = useState("");
+  const [liveProposalResult, setLiveProposalResult] = useState<"idle" | "none" | "ready">("idle");
   const [savedNotice, setSavedNotice] = useState(false);
   const [manualError, setManualError] = useState("");
   const stepTwoHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -104,6 +119,7 @@ export function JourneyApp() {
   const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
   const [outputId, setOutputId] = useState("");
   const [speakerStatus, setSpeakerStatus] = useState("");
+  const [speakerOutcome, setSpeakerOutcome] = useState(false);
   const [speakerTesting, setSpeakerTesting] = useState(false);
   const speakerTestRef = useRef<{ audio: HTMLAudioElement; cancel: () => void } | null>(null);
   const hasMemory = approved.some((project) => project.title.trim() && project.facts.some((fact) => fact.text.trim() && fact.source.trim()));
@@ -132,7 +148,8 @@ export function JourneyApp() {
           confidence: "clear", seniority: lastOpportunity.seniority, requirements: lastOpportunity.requirements } : null);
         setJobAlignment(lastOpportunity.alignment ?? null);
         setConfirmedOpportunity({ company: lastOpportunity.company, role: lastOpportunity.role, confidence: "clear" });
-        if (lastOpportunity.description.startsWith("PDF: ")) setOpportunityPdfName(lastOpportunity.description.slice(5));
+        if (lastOpportunity.description.startsWith("PDF: ")) { setOpportunityPdfName(lastOpportunity.description.slice(5)); setOpportunityMethod("pdf"); }
+        else if (lastOpportunity.sourceLabel?.startsWith("https://")) { setOpportunityUrl(lastOpportunity.sourceLabel); setOpportunityUrlText(lastOpportunity.description); setOpportunityMethod("url"); }
         else setOpportunityInput(lastOpportunity.description);
       }
       if (lastOpportunity && projects.length) setStep(4);
@@ -199,8 +216,8 @@ export function JourneyApp() {
     liveClockRef.current = advanceInterviewClock(liveClockRef.current, liveStatus, Date.now());
     if (!active) return;
     const tick = window.setInterval(() => {
-      const { elapsed, speaking } = interviewClockSeconds(liveClockRef.current, Date.now());
-      setLiveElapsed(elapsed); setLiveSpeakingSeconds(speaking);
+      const { elapsed } = interviewClockSeconds(liveClockRef.current, Date.now());
+      setLiveElapsed(elapsed);
     }, 1000);
     return () => window.clearInterval(tick);
   }, [liveStatus]);
@@ -216,8 +233,9 @@ export function JourneyApp() {
 
   async function beginLiveInterview() {
     if (!approvedProfile || !approved.length || liveRef.current || liveStartRef.current) return;
+    setLiveProposalResult("idle");
     pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false);
-    liveClockRef.current = emptyInterviewClock(); setLiveElapsed(0); setLiveSpeakingSeconds(0);
+    liveClockRef.current = emptyInterviewClock(); setLiveElapsed(0);
     const controller = new AbortController(); liveStartRef.current = controller;
     setLiveStatus("connecting"); setInterviewError("");
     try {
@@ -242,10 +260,13 @@ export function JourneyApp() {
 
   async function endLiveInterview() {
     const live = liveRef.current;
+    if (!live && !liveStartRef.current) return;
     liveStartRef.current?.abort(); liveStartRef.current = null;
     liveRef.current = null;
     const transcript = live?.userSpeech().trim() ?? "";
     live?.close(); setLiveStatus("ended"); setLiveLevel(0);
+    const finalTime = interviewClockSeconds(advanceInterviewClock(liveClockRef.current, "ended", Date.now()), Date.now());
+    setLiveElapsed(finalTime.elapsed);
     if (transcript.length < 10) { setInterviewError("The session ended, but no reviewable answer was captured."); return; }
     pendingLiveTranscriptRef.current = transcript;
     await prepareLiveProposals();
@@ -253,9 +274,9 @@ export function JourneyApp() {
 
   async function prepareLiveProposals() {
     const transcript = pendingLiveTranscriptRef.current;
-    if (!transcript) return;
+    if (!transcript || liveProposalRequestRef.current) return;
     const request = new AbortController(); liveProposalRequestRef.current = request;
-    setCanRetryLiveProposals(false); setReviewingLiveProposals(true); setInterviewError("");
+    setCanRetryLiveProposals(false); setReviewingLiveProposals(true); setInterviewError(""); setLiveProposalResult("idle");
     try {
       const result = await post<{ proposals: Array<Pick<MemoryProposal, "title" | "text" | "source">> }>("/interview/live/proposals", { transcript }, request.signal);
       if (request.signal.aborted) return;
@@ -268,6 +289,7 @@ export function JourneyApp() {
         const next = await commitMemory((state) => candidates.reduce((current, item) => retainPendingFact(current, item, new Date().toISOString()), state));
         setMemoryProposals(pendingInterviewFacts(next));
       }
+      setLiveProposalResult(candidates.length ? "ready" : "none");
       pendingLiveTranscriptRef.current = "";
     } catch (cause) {
       if (request.signal.aborted) return;
@@ -301,6 +323,15 @@ export function JourneyApp() {
     });
   }
 
+  function discardReviewFact(id: string) {
+    void run(async () => {
+      const item = memoryProposals.find((proposal) => proposal.id === id);
+      if (!item) return;
+      const next = await commitMemory((state) => dismissInterviewBatch(state, [item]));
+      setMemoryProposals(pendingInterviewFacts(next));
+    });
+  }
+
   function removeApprovedProject(projectId: string) {
     void run(async () => {
       const next = await commitMemory((state) => removeCareerProject(state, projectId));
@@ -311,10 +342,29 @@ export function JourneyApp() {
     });
   }
 
-  async function run(task: () => Promise<void>) {
-    setBusy(true); setError("");
-    try { await task(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Please try again."); }
-    finally { setBusy(false); }
+  async function run(task: () => Promise<void>, owner: Step = step, label = "") {
+    const operation = ++operationRef.current;
+    setBusy(true); setProcessing(label); setErrorOwner(owner); setError("");
+    try { await task(); }
+    catch (cause) { if (isCurrentOperation(operation, operationRef.current)) setError(cause instanceof Error ? cause.message : "Please try again."); }
+    finally { if (isCurrentOperation(operation, operationRef.current)) { setBusy(false); setProcessing(""); } }
+  }
+
+  function resetOpportunityInput(method?: "text" | "url" | "pdf") {
+    opportunityRequestRef.current?.abort(); opportunityRequestRef.current = null;
+    operationRef.current++; setBusy(false); setProcessing("");
+    setErrorOwner(3); setError(""); setOpportunityDraft(null); setJobAnalysis(null); setJobAlignment(null); setOpportunitySource(null); setOpportunityUrlText("");
+    if (!method || method === "text") setOpportunityInput("");
+    if (!method || method === "url") setOpportunityUrl("");
+    if (!method || method === "pdf") { opportunityPdfRef.current = null; setOpportunityPdfName(""); }
+    if (!method) setOpportunityMethod("text");
+  }
+
+  function chooseOpportunityMethod(method: "text" | "url" | "pdf") {
+    opportunityRequestRef.current?.abort(); opportunityRequestRef.current = null;
+    operationRef.current++; setBusy(false); setProcessing("");
+    setErrorOwner(3); setError(""); setOpportunityMethod(method);
+    setOpportunityDraft(null); setJobAnalysis(null); setJobAlignment(null); setOpportunitySource(null); setOpportunityUrlText("");
   }
 
   function selectPdf(event: ChangeEvent<HTMLInputElement>, kind: "resume" | "opportunity") {
@@ -322,12 +372,12 @@ export function JourneyApp() {
     event.target.value = "";
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".pdf") || file.size > 4_000_000) {
-      if (kind === "opportunity") opportunityPdfRef.current = null;
+      setErrorOwner(kind === "resume" ? 1 : 3);
       setError("Choose a PDF under 4 MB."); return;
     }
     if (kind === "opportunity") {
-      opportunityPdfRef.current = file; setOpportunityPdfName(file.name);
-      void run(() => analyzeOpportunityPdf(file));
+      chooseOpportunityMethod("pdf"); opportunityPdfRef.current = file; setOpportunityPdfName(file.name);
+      setOpportunityDraft(null); setJobAnalysis(null); setJobAlignment(null);
       return;
     }
     void run(async () => {
@@ -338,20 +388,24 @@ export function JourneyApp() {
     });
   }
 
-  async function analyzeOpportunityPdf(file: File) {
-    const data = await fileData(file);
-    const filename = file.name.length > 120 ? `${file.name.slice(0, 116)}.pdf` : file.name;
-    const result = await post<{ analysis: OpportunityAnalysis; alignment: NonNullable<typeof jobAlignment> }>("/analyze-opportunity", { filename, data,
-      careerFacts: approved.flatMap((project) => project.facts.map((fact) => ({ id: fact.id, text: fact.text }))).slice(0, 20) });
+  async function analyzeDescription() {
+    const controller = new AbortController(); opportunityRequestRef.current = controller;
+    try {
+    const careerFacts = approved.flatMap((project) => project.facts.map((fact) => ({ id: fact.id, text: fact.text }))).slice(0, 20);
+    let input: object;
+    if (opportunityMethod === "pdf") {
+      const file = opportunityPdfRef.current;
+      if (!file) throw new Error("Choose a job description PDF to analyze.");
+      input = { filename: file.name.slice(0, 260), data: await fileData(file), careerFacts };
+    } else if (opportunityMethod === "url") input = { url: opportunityUrl.trim(), careerFacts };
+    else input = { text: opportunityInput, careerFacts };
+    const result = await post<{ analysis: OpportunityAnalysis; alignment: NonNullable<typeof jobAlignment>; sourceText?: string }>("/analyze-opportunity", input, controller.signal);
+    if (controller.signal.aborted) return;
     setJobAnalysis(result.analysis); setJobAlignment(result.alignment);
     setOpportunityDraft({ company: result.analysis.company, role: result.analysis.role, confidence: result.analysis.confidence });
-    setOpportunitySource("pdf"); setConfirmedOpportunity(null);
-  }
-
-  function retryOpportunityPdf() {
-    const file = opportunityPdfRef.current;
-    if (!file) return;
-    void run(() => analyzeOpportunityPdf(file));
+    setOpportunitySource(opportunityMethod);
+    setOpportunityUrlText(result.sourceText ?? ""); setConfirmedOpportunity(null);
+    } finally { if (opportunityRequestRef.current === controller) opportunityRequestRef.current = null; }
   }
 
   function updateFact(projectIndex: number, factIndex: number, text: string) {
@@ -364,9 +418,9 @@ export function JourneyApp() {
     const projects = proposal?.projects.map((project) => ({ ...project,
       facts: project.facts.filter((fact) => fact.text.trim().length >= 4 && fact.source.trim().length >= 3) }))
       .filter((project) => project.facts.length && project.title.trim().length >= 2) ?? [];
-    if (!projects.length) { setError("Keep at least one source-backed fact to approve."); return; }
+    if (!projects.length) { setErrorOwner(1); setError("Keep at least one source-backed fact to approve."); return; }
     if (!proposal || proposal.profile.profession.trim().length < 2 || proposal.profile.seniority.trim().length < 2 || proposal.profile.careerSummary.trim().length < 10) {
-      setError("Review the profession, seniority, and career overview before approving."); return;
+      setErrorOwner(1); setError("Review the profession, seniority, and career overview before approving."); return;
     }
     const reviewed = { profile: proposal.profile, projects };
     void run(async () => {
@@ -441,11 +495,15 @@ export function JourneyApp() {
   useEffect(() => () => { stopSpeakerTest(); setSpeakerTesting(false); setSpeakerStatus(""); }, [step]);
 
   async function testMicrophone() {
-    await run(async () => {
+    setMicrophoneOutcome(null); setMicrophoneStatus("");
+    setBusy(true);
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: microphoneId ? { deviceId: { exact: microphoneId } } : true });
-      const context = new AudioContext();
+      let context: AudioContext | null = null;
       let meter: number | undefined;
+      let streak = 0; let passed = false;
       try {
+        context = new AudioContext();
         const source = context.createMediaStreamSource(stream);
         const analyser = context.createAnalyser();
         analyser.fftSize = 1024; source.connect(analyser);
@@ -453,27 +511,32 @@ export function JourneyApp() {
         meter = window.setInterval(() => {
           analyser.getByteTimeDomainData(samples);
           const rms = Math.sqrt(samples.reduce((sum, sample) => sum + ((sample - 128) / 128) ** 2, 0) / samples.length);
-          setMicrophoneLevel(Math.min(100, Math.round(rms * 400)));
+          const level = Math.min(100, Math.round(rms * 400));
+          setMicrophoneLevel(level);
+          streak = microphoneSample(level, streak);
+          if (microphonePassed(streak)) passed = true;
         }, 80);
         const devices = await navigator.mediaDevices.enumerateDevices();
         setMicrophones(devices.filter((device) => device.kind === "audioinput"));
         setOutputs(devices.filter((device) => device.kind === "audiooutput"));
         setOutputName(devices.find((device) => device.kind === "audiooutput" && device.deviceId === "default")?.label || "System default");
-        setMicrophoneStatus("Microphone test running");
+        setMicrophoneStatus("Speak to test your microphone…");
         await new Promise((resolve) => window.setTimeout(resolve, 3000));
-        setMicrophoneStatus("");
+        setMicrophoneOutcome(passed ? "pass" : "quiet");
+        setMicrophoneStatus(passed ? "Input detected" : "Input was too quiet. Check your microphone and try again.");
       } finally {
         if (meter !== undefined) window.clearInterval(meter);
         setMicrophoneLevel(0);
         stream.getTracks().forEach((track) => track.stop());
-        await context.close();
+        if (context) await context.close();
       }
-    });
+    } catch (cause) { setMicrophoneStatus(cause instanceof Error ? cause.message : "Microphone test failed."); }
+    finally { setBusy(false); }
   }
 
   async function testSpeaker() {
     if (speakerTestRef.current) return;
-    setSpeakerStatus("");
+    setSpeakerStatus(""); setSpeakerOutcome(false);
     const audio = new Audio("/speaker-test.mp3");
     let settle = () => {};
     const finished = new Promise<"ended" | "cancelled">((resolve, reject) => {
@@ -492,7 +555,7 @@ export function JourneyApp() {
       await audio.play();
       if (speakerTestRef.current?.audio !== audio) return;
       setSpeakerStatus("Playing speaker test");
-      if (await finished === "ended" && speakerTestRef.current?.audio === audio) setSpeakerStatus("");
+      if (speakerPlaybackCompleted(await finished) && speakerTestRef.current?.audio === audio) { setSpeakerStatus("Playback completed"); setSpeakerOutcome(true); }
     } catch (cause) {
       if (speakerTestRef.current?.audio === audio) setSpeakerStatus(cause instanceof Error ? cause.message : "Speaker test unavailable.");
     } finally {
@@ -513,9 +576,9 @@ export function JourneyApp() {
       await commitMemory(() => emptyMemoryState());
       activeSessionRef.current = null; setApproved([]); setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null);
       setMemoryProposals([]); setTalkSaved(false); setConfirmedOpportunity(null); setActiveOpportunityId(null); setOpportunityDraft(null);
-      opportunityPdfRef.current = null; setOpportunitySource(null);
-      setOpportunityInput(""); setOpportunityPdfName(""); setJobAnalysis(null); setJobAlignment(null); setJobAnswer("");
-      setProjectTitle(""); setProjectFact(""); setSavedNotice(false); setMicrophones([]); setMicrophoneId(""); setMicrophoneStatus(""); setStep(1);
+      opportunityPdfRef.current = null; setOpportunitySource(null); setOpportunityMethod("text");
+      setOpportunityInput(""); setOpportunityUrl(""); setOpportunityUrlText(""); setOpportunityPdfName(""); setJobAnalysis(null); setJobAlignment(null); setJobAnswer("");
+      setProjectTitle(""); setProjectFact(""); setSavedNotice(false); setMicrophones([]); setMicrophoneId(""); setMicrophoneStatus(""); setInterviewerName(""); setInterviewerUrl(""); setEditingInterviewerId(null); setStep(1);
       setNewProjectId(""); setMicrophoneLevel(0); setManualError("");
     });
   }
@@ -553,7 +616,7 @@ export function JourneyApp() {
     {intro && <OpeningSequence onFinish={closeIntro} />}
     <dialog ref={hudDialogRef} className="hud-preview" aria-labelledby="hud-preview-title" aria-describedby="hud-preview-description" onClose={() => { hudDragRef.current = null; hudTriggerRef.current?.focus(); }}>
       <div className="hud-preview-heading" onPointerDown={beginHudDrag} onPointerMove={moveHudDrag} onPointerUp={() => { hudDragRef.current = null; }} onLostPointerCapture={() => { hudDragRef.current = null; }}><h2 id="hud-preview-title">VantSide HUD</h2><button type="button" className="hud-preview-close" onClick={() => hudDialogRef.current?.close()} aria-label="Close HUD preview">×</button></div>
-      <p id="hud-preview-description">Mockup: brief cues from approved Career Memory during interview practice.</p>
+       <p id="hud-preview-description" className="sr-only">Illustrative interview preview showing Career Memory cues.</p>
       <Image src="/hud_overlay.webp" alt="Illustrative simulated interview with VantSide memory cues shown across the top" width={1672} height={941} unoptimized />
     </dialog>
     <div className="page-wrap">
@@ -569,13 +632,13 @@ export function JourneyApp() {
           const complete = number === 1 ? resumeApproved : number === 2 ? talkSaved && hasMemory : number === 3 ? !!confirmedOpportunity : false;
           const description = ["Establish your professional background.", "Share deeper experiences to build your Career Memory.", "Explore how your experience connects to a specific job.", "Practice for the role and identify supported strengths and areas to explore."][number - 1];
           return <button key={number} type="button" className={`step-card${step === number ? " active" : ""}${number === 2 && stepTwoActivated ? " step-activated" : ""}`} disabled={locked}
-            onClick={() => { if (step === 2 && number > 2 && (reviewBatch.length || liveRunning || reviewingLiveProposals || canRetryLiveProposals)) { setError(liveRunning ? "End the interview and review new facts before continuing." : reviewBatch.length ? "Accept or discard the new facts before continuing." : "Finish or discard the memory review before continuing."); return; } if (step === 2 && number !== 2 && (liveRef.current || liveStartRef.current)) void endLiveInterview(); setStep(number); }} aria-current={step === number ? "step" : undefined}>
+             onClick={() => { if (step === 2 && number > 2 && (reviewBatch.length || liveRunning || reviewingLiveProposals || canRetryLiveProposals)) { setErrorOwner(2); setError(liveRunning ? "End the interview and review new facts before continuing." : reviewBatch.length ? "Accept or discard the new facts before continuing." : "Finish or discard the memory review before continuing."); return; } if (step === 3 && number !== 3 && opportunityRequestRef.current) { opportunityRequestRef.current.abort(); opportunityRequestRef.current = null; operationRef.current++; setBusy(false); setProcessing(""); } if (step === 2 && number !== 2 && (liveRef.current || liveStartRef.current)) void endLiveInterview(); setStep(number); }} aria-current={step === number ? "step" : undefined}>
             <span className="step-card-top"><span className="step-card-number">0{number}</span>{complete && <span className="step-card-check" aria-label="Complete">✓</span>}{locked && <span className="step-card-lock" aria-label="Locked"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1" stroke="currentColor"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor"/></svg></span>}</span><strong>{title}</strong><span className="step-card-description">{description}</span>
           </button>;
         })}
       </nav>
       <section key={step} className="step-detail" aria-live="polite">
-        {error && <p className="step-error" role="alert">{error}</p>}
+        {visibleStepError(error, errorOwner, step) && <p className="step-error" role="alert">{error}</p>}
         {step === 1 && <>
           <div className="detail-heading"><span className="eyebrow">01 / YOUR RESUME</span><h2>Start with what you’ve done.</h2></div>
           <div className="resume-upload">{!resumeName && <label className="file-button primary-upload">Choose PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "resume")} disabled={busy}/></label>}{busy && !resumeName && <span className="resume-processing" role="status"><span className="resume-processing-dots" aria-hidden="true"><i/><i/><i/><i/></span>Analyzing your PDF…</span>}{resumeName && <div className="resume-file"><span aria-hidden="true" className="pdf-icon">PDF</span><strong>{resumeName}</strong><button type="button" className="resume-file-delete" aria-label="Remove resume PDF" title="Remove resume PDF" disabled={busy} onClick={removeResumeSelection}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5"/></svg></button></div>}</div>
@@ -593,24 +656,26 @@ export function JourneyApp() {
         {step === 2 && <>
           <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2 ref={stepTwoHeadingRef} tabIndex={-1}>Tell the story behind the work.</h2></div>
           <details className="audio-devices" open><summary>Audio setup</summary><div className="audio-device-grid">
-            <section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void refreshDevices()} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={Math.max(microphoneLevel, liveLevel)} aria-label="Microphone level" /></div>{microphoneStatus && <span className="device-status" role="status">{microphoneStatus}</span>}</section>
-            <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => setOutputId(event.target.value)}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={speakerTesting} onClick={() => void testSpeaker()}>Test speaker</button></div>{speakerStatus && <span className="device-status" role="status">{speakerStatus}</span>}</section>
+             <section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void refreshDevices()} onChange={(event) => { setMicrophoneId(event.target.value); setMicrophoneOutcome(null); setMicrophoneStatus(""); }}><option value="">System default</option>{microphones.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={Math.max(microphoneLevel, liveLevel)} aria-label="Microphone level" /></div>{microphoneStatus && <span className="device-status" role="status"><span className={microphoneOutcome === "pass" ? "test-check" : microphoneOutcome === "quiet" ? "test-fail" : ""} aria-hidden="true">{microphoneOutcome === "pass" ? "✓" : microphoneOutcome === "quiet" ? "×" : ""}</span>{microphoneStatus}</span>}</section>
+             <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => { setOutputId(event.target.value); setSpeakerOutcome(false); setSpeakerStatus(""); }}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={speakerTesting} onClick={() => void testSpeaker()}>Test speaker</button></div>{speakerStatus && <span className="device-status" role="status">{speakerOutcome && <span className="test-check" aria-hidden="true">✓</span>}{speakerStatus}</span>}</section>
           </div></details>
           <span className="sr-only" id="interview-consent-note">Practice interview. Voice input is processed by external AI services. Start only with everyone&apos;s consent and where recording and AI use are allowed.</span>
           {interviewError && <p className="step-error" role="alert">{interviewError}</p>}
           {canRetryLiveProposals && <div className="inline-actions"><button className="secondary-button" type="button" onClick={() => void prepareLiveProposals()}>Retry memory review</button><button className="text-button" type="button" onClick={() => { pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false); setInterviewError(""); }}>Discard captured answer</button></div>}
+          {reviewingLiveProposals && <div className="resume-processing interview-processing" role="status" aria-live="polite"><span className="resume-processing-dots" aria-hidden="true"><i/><i/><i/><i/></span><span><strong>Building your Career Memory…</strong><br/>Interview ended. Reviewing your conversation.</span></div>}
+          {!reviewingLiveProposals && liveProposalResult === "none" && <p className="detail-note" role="status">No new facts were found in this conversation. Your approved Career Memory is unchanged.</p>}
           <div className="live-status" role="status" aria-live="polite"><span className={`live-status-dot ${liveStatus}`} aria-hidden="true" /><span>Interview status</span><strong>{({ ready: "Ready", connecting: "Connecting", listening: "Listening", "user-speaking": "You’re speaking", speaking: "Interviewer speaking", paused: "Paused", ended: "Ended", error: "Error" } as const)[liveStatus]}</strong></div>
           <div className="interview-controls">
-            {!liveRunning && <button className="primary-button" type="button" disabled={!approvedProfile || canRetryLiveProposals || reviewingLiveProposals} aria-describedby="interview-consent-note" title="Practice only. Voice uses external AI services; start with everyone’s consent." onClick={() => void beginLiveInterview()}>Start Interview</button>}
+             {!liveRunning && <button className="primary-button" type="button" disabled={!approvedProfile || canRetryLiveProposals || reviewingLiveProposals} aria-describedby="interview-consent-note" title="Practice only. Voice uses external AI services; start with everyone’s consent." onClick={() => void beginLiveInterview()}>{liveStatus === "ended" ? "Start Another Interview" : "Start Interview"}</button>}
             {liveStatus === "paused" && <button className="primary-button" type="button" onClick={() => liveRef.current?.resume()}>Resume</button>}
             {["listening", "user-speaking", "speaking"].includes(liveStatus) && <button className="secondary-button" type="button" onClick={pauseInterview}>Pause</button>}
-            {liveRunning && <button className="end-interview-button" type="button" onClick={stopInterview} aria-label={`End interview, ${interviewTime(liveElapsed)} elapsed, approximately ${interviewTime(liveSpeakingSeconds)} speaking`} title="Progress reflects approximate speaking time. End Interview is always available."><span>End Interview</span><span className="end-interview-progress" style={{ width: `${Math.min(100, liveSpeakingSeconds / suggestedSpeakingSeconds * 100)}%` }} aria-hidden="true" /></button>}
+             {liveRunning && <button className="end-interview-button" type="button" onClick={stopInterview} aria-label={`End interview, ${interviewTime(liveElapsed)} elapsed`}><span>End Interview</span></button>}
           </div>
-          {liveRunning && <div className="interview-timing"><time aria-label="Elapsed interview time">{interviewTime(liveElapsed)}</time>{interviewEncouragement(liveElapsed) && <span>{interviewEncouragement(liveElapsed)}</span>}</div>}
+           {(liveRunning || liveStatus === "ended") && <div className="interview-timing"><time aria-label="Elapsed interview time">{interviewTime(liveElapsed)}</time><div className="interview-timeline" role="img" aria-label={`Interview time ${interviewTime(liveElapsed)}. Helpful milestones at 3, 10, and 30 minutes.`}><span className="interview-timeline-fill" style={{ width: `${Math.min(100, liveElapsed / 1800 * 100)}%` }}/><i style={{ left: "10%" }}/><i style={{ left: "33.33%" }}/><i style={{ left: "100%" }}/></div><span className="interview-milestones">3 · 10 · 30 min</span>{interviewEncouragement(liveElapsed) && <span className="interview-encouragement">{interviewEncouragement(liveElapsed)}</span>}</div>}
           <section className="memory-section" aria-labelledby="new-memory-heading">
             <h3 id="new-memory-heading">New from Your Interview</h3>
-            {reviewBatch.length ? <>{reviewBatch.map((item) => <div className="review-fact" key={item.id}><p className="eyebrow">PROPOSED · NOT APPROVED</p><strong>{item.title}</strong><label className="field-label">Fact<textarea rows={2} maxLength={300} value={item.text} onChange={(event) => setMemoryProposals((old) => old.map((proposal) => proposal.id === item.id ? { ...proposal, text: event.target.value } : proposal))}/></label></div>)}
-              <div className="inline-actions"><button className="primary-button" type="button" disabled={busy || reviewingLiveProposals || canRetryLiveProposals} onClick={acceptReviewBatch}>Accept Facts</button><button className="secondary-button dismiss-button" type="button" disabled={busy || reviewingLiveProposals} onClick={discardReviewBatch}>Discard</button></div></> : <p className="detail-note">No new facts to review.</p>}
+             {reviewBatch.length ? <><p className="detail-note">From your conversation. Review and edit before adding to Career Memory.</p>{reviewBatch.map((item) => <div className="review-fact review-pending-fact" key={item.id}><div className="review-pending-heading"><strong>{item.title}</strong><button type="button" className="pending-delete" aria-label={`Discard proposed fact: ${item.title}`} title="Discard this fact" disabled={busy} onClick={() => discardReviewFact(item.id)}>×</button></div><label className="field-label">Fact<textarea rows={2} maxLength={300} value={item.text} onChange={(event) => setMemoryProposals((old) => old.map((proposal) => proposal.id === item.id ? { ...proposal, text: event.target.value } : proposal))}/></label></div>)}
+               <div className="inline-actions"><button className="primary-button" type="button" disabled={busy || reviewingLiveProposals || canRetryLiveProposals} onClick={acceptReviewBatch}>Accept All Facts</button><button className="secondary-button dismiss-button" type="button" disabled={busy || reviewingLiveProposals} onClick={discardReviewBatch}>Discard All Facts</button></div></> : <p className="detail-note">No new facts to review.</p>}
           </section>
           <section className="memory-section" aria-labelledby="career-memory-heading">
             <h3 id="career-memory-heading">Career Memory <span className="memory-approved-label">Approved · Saved</span></h3>
@@ -634,18 +699,16 @@ export function JourneyApp() {
         </>}
         {step === 3 && <>
           <div className="detail-heading"><span className="eyebrow">03 / THE OPPORTUNITY</span><h2>What are you preparing for?</h2></div>
-          <label className="field-label">Paste job description<textarea value={opportunityInput} maxLength={15000} rows={6} disabled={busy} onChange={(event) => { setOpportunityInput(event.target.value); setOpportunityDraft(null); setJobAnalysis(null); setJobAlignment(null); setOpportunitySource(null); opportunityPdfRef.current = null; setOpportunityPdfName(""); }}/></label>
-          {opportunityInput.trim().length > 0 && opportunityInput.trim().length < 30 && <p className="detail-note">Paste at least 30 characters to analyze.</p>}
-          <div className="inline-actions"><button type="button" className="primary-button" disabled={busy || opportunityInput.trim().length < 30} onClick={() => void run(async () => {
-            const result = await post<{ analysis: OpportunityAnalysis; alignment: NonNullable<typeof jobAlignment> }>("/analyze-opportunity", { text: opportunityInput,
-              careerFacts: approved.flatMap((project) => project.facts.map((fact) => ({ id: fact.id, text: fact.text }))).slice(0, 20) });
-            setJobAnalysis(result.analysis); setJobAlignment(result.alignment);
-            setOpportunityDraft({ company: result.analysis.company, role: result.analysis.role, confidence: result.analysis.confidence });
-            setOpportunitySource("text"); opportunityPdfRef.current = null; setOpportunityPdfName(""); setConfirmedOpportunity(null);
-          })}>Analyze description</button><label className="file-button">Choose job description PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "opportunity")} disabled={busy}/></label>{busy && <span role="status">Analyzing job description…</span>}</div>
-          {opportunityPdfName && <p className="detail-note">Selected PDF: {opportunityPdfName}</p>}
-          {opportunitySource === "pdf" && opportunityInput.trim() && <p className="detail-note">Reviewing the PDF. Your pasted text is still here if you want to use it instead.</p>}
-          {step === 3 && error && opportunityPdfRef.current && !busy && <button type="button" className="secondary-button" onClick={retryOpportunityPdf}>Retry PDF analysis</button>}
+           <div className="opportunity-inputs" role="radiogroup" aria-label="Job description source">
+             <label className={`opportunity-input-choice${opportunityMethod === "text" ? " selected" : ""}`}><input type="radio" name="job-source" checked={opportunityMethod === "text"} onChange={() => chooseOpportunityMethod("text")}/><span>Paste a job description</span></label>
+             {opportunityMethod === "text" && <><textarea aria-label="Job description text" value={opportunityInput} maxLength={15000} rows={6} disabled={busy} onChange={(event) => { setOpportunityInput(event.target.value); setOpportunityDraft(null); setJobAnalysis(null); setError(""); }}/>{!!opportunityInput && <button type="button" className="text-button input-clear" onClick={() => resetOpportunityInput("text")}>Clear description</button>}</>}
+             <label className={`opportunity-input-choice${opportunityMethod === "url" ? " selected" : ""}`}><input type="radio" name="job-source" checked={opportunityMethod === "url"} onChange={() => chooseOpportunityMethod("url")}/><span>Paste a job posting URL</span></label>
+             {opportunityMethod === "url" && <><input type="url" aria-label="HTTPS job posting URL" placeholder="https://…" value={opportunityUrl} maxLength={2000} disabled={busy} onChange={(event) => { setOpportunityUrl(event.target.value); setOpportunityDraft(null); setJobAnalysis(null); setJobAlignment(null); setError(""); }}/>{!!opportunityUrl && <button type="button" className="text-button input-clear" onClick={() => resetOpportunityInput("url")}>Clear URL</button>}</>}
+             <label className={`opportunity-input-choice${opportunityMethod === "pdf" ? " selected" : ""}`}><input type="radio" name="job-source" checked={opportunityMethod === "pdf"} onChange={() => chooseOpportunityMethod("pdf")}/><span>Upload a job-description PDF</span></label>
+             {opportunityMethod === "pdf" && <div className="inline-actions"><label className="file-button">Upload Job Description PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => selectPdf(event, "opportunity")}/></label>{opportunityPdfName && <><span className="detail-note">{opportunityPdfName}{!opportunityPdfRef.current ? " · Choose again to analyze" : ""}</span><button type="button" className="resume-file-delete" aria-label="Remove selected job description PDF" title="Remove PDF" onClick={() => resetOpportunityInput("pdf")}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5"/></svg></button></>}</div>}
+           </div>
+           <div className="inline-actions opportunity-analyze"><button type="button" className="primary-button" disabled={busy || (opportunityMethod === "text" && opportunityInput.trim().length < 30) || (opportunityMethod === "url" && !opportunityUrl.trim()) || (opportunityMethod === "pdf" && !opportunityPdfRef.current)} onClick={() => void run(analyzeDescription, 3, opportunityMethod === "url" ? "Reading job posting and analyzing description…" : opportunityMethod === "pdf" ? "Reading PDF and analyzing description…" : "Analyzing description…")}>Analyze Description</button>{busy && processing && <span className="resume-processing" role="status"><span className="resume-processing-dots" aria-hidden="true"><i/><i/><i/><i/></span>{processing}</span>}</div>
+           {(opportunityInput || opportunityUrl || opportunityPdfName || opportunityDraft) && <button type="button" className="text-button input-clear" onClick={() => resetOpportunityInput()}>Start over with a different description</button>}
           {opportunityDraft && <div className="opportunity-review"><h3>Company and role</h3><p className="detail-note">{opportunityDraft.confidence === "uncertain" || !opportunityDraft.company || !opportunityDraft.role ? "Check the missing or uncertain details before saving." : "Check these details before saving."}</p>
             <label className="field-label">Company<input value={opportunityDraft.company} maxLength={100} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, company: event.target.value, confidence: "uncertain" })}/></label>
             {!opportunityDraft.company && <button type="button" className="text-button" onClick={() => setOpportunityDraft({ ...opportunityDraft, company: "Not specified", confidence: "uncertain" })}>Company not listed</button>}
@@ -671,12 +734,13 @@ export function JourneyApp() {
               })}>Review for Career Memory</button></div>}
           </div>}
           {opportunityDraft && <button type="button" className="primary-button" disabled={!opportunityDraft.company.trim() || !opportunityDraft.role.trim() || !jobAnalysis?.requirements.length || busy} onClick={() => void run(async () => {
-            const description = opportunitySource === "pdf" ? `PDF: ${opportunityPdfName}` : opportunityInput.trim();
-            const next = await commitMemory((state) => confirmOpportunity(state, opportunityDraft, description, new Date().toISOString(), jobAnalysis ?? undefined, jobAlignment ?? undefined, opportunitySource === "pdf" ? opportunityPdfName : "Pasted job description"));
+             const description = opportunitySource === "pdf" ? `PDF: ${opportunityPdfName}` : opportunitySource === "url" ? opportunityUrlText : opportunityInput.trim();
+             const sourceLabel = opportunitySource === "pdf" ? opportunityPdfName : opportunitySource === "url" ? opportunityUrl.trim() : "Pasted job description";
+             const next = await commitMemory((state) => confirmOpportunity(state, opportunityDraft, description, new Date().toISOString(), jobAnalysis ?? undefined, jobAlignment ?? undefined, sourceLabel));
             const saved = next.opportunities.find((item) => item.company === opportunityDraft.company.trim() && item.role === opportunityDraft.role.trim() && item.description === description);
             if (!saved) throw new Error("Opportunity was saved but could not be selected. Reopen the app to restore it.");
             setActiveOpportunityId(saved.id); setConfirmedOpportunity(opportunityDraft); setOpportunityDraft(null);
-          })}>Save opportunity</button>}
+          }, 3, "Saving opportunity…")}>Save opportunity</button>}
           {opportunityDraft && !jobAnalysis?.requirements.length && <p className="detail-note">Keep at least one requirement from the job description before saving.</p>}
           {confirmedOpportunity && <p className="detail-note" role="status">Saved: {confirmedOpportunity.role} · {confirmedOpportunity.company}</p>}
           {confirmedOpportunity && <button type="button" className="primary-button" onClick={() => setStep(4)}>Continue to Practice</button>}
@@ -690,10 +754,18 @@ export function JourneyApp() {
             setConfirmedOpportunity(previous ? { company: previous.company, role: previous.role, confidence: "clear" } : null);
             setJobAnalysis(previous?.requirements ? { company: previous.company, role: previous.role, seniority: previous.seniority, confidence: "clear", requirements: previous.requirements } : null);
             setJobAlignment(previous?.alignment ?? null); setJobAnswer(""); setOpportunityDraft(null);
-            setOpportunityInput(previous?.description.startsWith("PDF: ") ? "" : previous?.description ?? "");
+             setOpportunityInput(previous?.description.startsWith("PDF: ") || previous?.sourceLabel?.startsWith("https://") ? "" : previous?.description ?? "");
+             setOpportunityUrl(previous?.sourceLabel?.startsWith("https://") ? previous.sourceLabel : "");
+             setOpportunityUrlText(previous?.sourceLabel?.startsWith("https://") ? previous.description : "");
             setOpportunityPdfName(previous?.description.startsWith("PDF: ") ? previous.description.slice(5) : "");
           })}>Remove saved opportunity</button>}
-          <details className="optional-interviewers"><summary>Known interviewers (optional)</summary><p className="detail-note">Interviewer context is not available yet.</p><label className="field-label">LinkedIn profile URL<input type="url" placeholder="Not available yet" disabled /></label><label className="file-button unavailable-file" aria-disabled="true">Interviewer PDF · unavailable<input type="file" accept="application/pdf,.pdf" disabled /></label></details>
+           <details className="optional-interviewers"><summary>Known interviewers (optional)</summary><p className="detail-note">Profiles you add are unverified. VantSide does not read LinkedIn pages.</p>
+             {opportunityById(memoryRef.current, activeOpportunityId)?.knownInterviewers?.map((person) => <div className="interviewer-row" key={person.id}><span>{person.name ? `${person.name} · ` : ""}<a href={person.profileUrl} target="_blank" rel="noreferrer">LinkedIn profile</a></span><button type="button" className="text-button" disabled={busy} onClick={() => { setEditingInterviewerId(person.id); setInterviewerName(person.name ?? ""); setInterviewerUrl(person.profileUrl); }}>Edit</button><button type="button" className="text-button" disabled={busy} onClick={() => void run(async () => { await commitMemory((state) => removeKnownInterviewer(state, activeOpportunityId!, person.id)); if (editingInterviewerId === person.id) { setEditingInterviewerId(null); setInterviewerName(""); setInterviewerUrl(""); } setInterviewerVersion((value) => value + 1); })}>Remove</button></div>)}
+             <label className="field-label">Name (optional)<input value={interviewerName} maxLength={100} onChange={(event) => setInterviewerName(event.target.value)} /></label>
+             <label className="field-label">LinkedIn profile URL<input type="url" value={interviewerUrl} maxLength={500} placeholder="https://www.linkedin.com/in/…" onChange={(event) => setInterviewerUrl(event.target.value)} /></label>
+             <div className="inline-actions"><button type="button" className="secondary-button" disabled={busy || !confirmedOpportunity || !interviewerUrl.trim()} onClick={() => void run(async () => { await commitMemory((state) => addKnownInterviewer(state, activeOpportunityId!, interviewerName, interviewerUrl, editingInterviewerId ?? undefined)); setInterviewerName(""); setInterviewerUrl(""); setEditingInterviewerId(null); setInterviewerVersion((value) => value + 1); })}>{editingInterviewerId ? "Save interviewer" : "Add interviewer"}</button>{editingInterviewerId && <button type="button" className="text-button" onClick={() => { setEditingInterviewerId(null); setInterviewerName(""); setInterviewerUrl(""); }}>Cancel</button>}</div>
+             {!confirmedOpportunity && <p className="detail-note">Save the opportunity first.</p>}
+           </details>
         </>}
         {step === 4 && <>
           <div className="detail-heading"><span className="eyebrow">04 / YOUR INTERVIEW</span><h2>Bring your own experience.</h2></div>

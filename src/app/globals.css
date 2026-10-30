@@ -235,7 +235,18 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .resume-processing-dots i:nth-child(4) { animation-delay: .36s; }
 .saved-note { color: #087c42; font-size: 11px; font-weight: 700; }
 .optional-interviewers { margin-top: 24px; font-size: 11px; color: #62625d; }
-.optional-interviewers summary { cursor: pointer; }
+.optional-interviewers summary { cursor: pointer; padding: 10px 0; font-size: 12px; font-weight: 700; }
+.interviewer-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 760px; padding: 8px 0; }
+.interviewer-row a { color: #087c42; }
+.opportunity-inputs { display: grid; max-width: 760px; gap: 9px; }
+.opportunity-input-choice { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 700; }
+.opportunity-input-choice.selected { border-color: var(--action); background: #f4faf3; }
+.opportunity-input-choice input { accent-color: var(--action); }
+.opportunity-inputs > textarea, .opportunity-inputs > input[type="url"] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; color: var(--ink); font: inherit; font-size: 12px; }
+.opportunity-analyze { margin: 18px 0; }
+.input-clear { justify-self: start; width: fit-content; margin: 0 0 4px; }
+.interview-processing { align-items: flex-start; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 5px; background: #f7faf5; line-height: 1.6; }
+.interview-processing strong { color: var(--ink); font-size: 12px; }
 .practice-start { margin-top: 16px; }
 .file-button, .secondary-button { display: inline-flex; align-items: center; padding: 10px 13px; border: 1px solid var(--ink); border-radius: 4px; background: white; cursor: pointer; font-size: 12px; font-weight: 650; }
 .file-button.primary-upload { background: var(--action); border-color: var(--action); color: #fff; }
@@ -255,14 +266,18 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .profile-review .field-label:last-child { grid-column: 1 / -1; }
 .interview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; margin: 12px 0 20px; }
 .interview-prestart { justify-content: space-between; max-width: 760px; }
-.interview-timing { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; margin: -8px 0 18px; color: var(--muted); font-size: 11px; }
+.interview-timing { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; max-width: 760px; margin: -8px 0 18px; color: var(--muted); font-size: 11px; }
 .interview-timing time { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 700; }
+.interview-timeline { position: relative; width: min(180px, 40vw); height: 5px; border-radius: 9px; background: #e5e9e2; }
+.interview-timeline-fill { display: block; height: 100%; border-radius: inherit; background: var(--action); transition: width 1s linear; }
+.interview-timeline i { position: absolute; top: -2px; width: 2px; height: 9px; background: #8a9587; }
+.interview-milestones { white-space: nowrap; }
+.interview-encouragement { flex-basis: 100%; }
 .end-interview-button { position: relative; display: inline-flex; align-items: center; gap: 12px; overflow: hidden; min-height: 38px; padding: 9px 12px; border: 1px solid #bfc6bd; border-radius: 4px; background: white; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 700; }
 .end-interview-button:hover { border-color: var(--action); }
 .end-interview-button:focus-visible { outline: 3px solid var(--action); outline-offset: 2px; }
 .end-interview-button > span:not(.end-interview-progress) { position: relative; z-index: 1; }
 .end-interview-time { font-variant-numeric: tabular-nums; color: #646b63; }
-.end-interview-progress { position: absolute; inset: 0 auto 0 0; background: #12a85b24; transition: width 1s linear; }
 .interview-status, .live-status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 7px; max-width: 100%; min-height: 32px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: #f7f8f5; color: var(--muted); font-size: 10px; }
 .interview-status strong, .live-status strong { color: var(--ink); font-size: 11px; }
 .review-list h3, .memory-editor h3 { margin: 0 0 16px; font-size: 15px; }
@@ -282,6 +297,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .review-fact { padding: 10px 12px; background: var(--soft); border-radius: 4px; }
 .review-fact p { margin: 7px 0 0; color: #777772; font-size: 10px; line-height: 1.5; }
 .review-fact .inline-actions { margin-top: 12px; }
+.review-pending-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pending-delete { border: 0; background: transparent; color: var(--delete-red); cursor: pointer; font-size: 19px; line-height: 1; }
+.pending-delete:focus-visible { outline: 2px solid var(--delete-red); outline-offset: 2px; }
 .dismiss-button { border-color: #d9d9d4; background: #f7f7f4; color: #62625d; }
 .dismiss-button:hover { background: #ededE9; }
 .review-list > .primary-button { margin-top: 14px; }
@@ -312,7 +330,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .device-card select, .device-default { display: block; width: 100%; min-height: 36px; padding: 8px 32px 8px 10px; border: 1px solid var(--border); border-radius: 4px; background: #fff; color: var(--ink); font-size: 11px; font-weight: 500; }
 .device-card-actions { display: flex; min-height: 36px; align-items: center; gap: 12px; }
 .device-card-actions meter { width: min(120px, 42%); accent-color: var(--action); }
-.device-status { color: var(--muted); font-size: 10px; }
+.device-status { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
+.test-check { color: #087c42; font-size: 14px; font-weight: 800; }
+.test-fail { color: var(--delete-red); font-size: 17px; font-weight: 800; }
 .privacy-details { max-width: 760px; margin-top: 15px; color: var(--muted); font-size: 11px; }
 .privacy-details summary { cursor: pointer; }
 .privacy-details p { line-height: 1.5; }

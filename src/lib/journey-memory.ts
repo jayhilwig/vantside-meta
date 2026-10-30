@@ -175,10 +175,33 @@ export function confirmOpportunity(state: MemoryState, opportunity: Opportunity,
   if (existing && !analysis) return state;
   const record = { id: existing?.id ?? newMemoryId("job"), company, role, description: description.trim(), confirmedAt: existing?.confirmedAt ?? now,
       seniority: analysis?.seniority, sourceLabel, requirements: analysis?.requirements, alignment: reviewedAlignment,
+      knownInterviewers: existing?.knownInterviewers,
       preparationQuestions: analysis?.requirements.filter((item) => reviewedAlignment?.needsEvidence.includes(item.id)).slice(0, 3)
         .map((item) => `What past work can you share that relates to ${item.text.toLowerCase()}?`) };
   // The last record is restored as the active opportunity on the next launch.
   return memoryStateSchema.parse({ ...state, opportunities: [...state.opportunities.filter((item) => item.id !== existing?.id), record] });
+}
+
+export function addKnownInterviewer(state: MemoryState, opportunityId: string, name: string, profileUrl: string, interviewerId?: string): MemoryState {
+  const opportunity = opportunityById(state, opportunityId);
+  if (!opportunity) throw new Error("Save the opportunity before adding an interviewer.");
+  let url: URL;
+  try { url = new URL(profileUrl.trim()); } catch { throw new Error("Enter a valid LinkedIn profile URL."); }
+  if (url.protocol !== "https:" || !["linkedin.com", "www.linkedin.com"].includes(url.hostname) || !/^\/in\/[^/]+\/?$/.test(url.pathname) || url.username || url.password)
+    throw new Error("Enter a public LinkedIn profile URL.");
+  const known = opportunity.knownInterviewers ?? [];
+  if (known.some((person) => person.profileUrl === url.href && person.id !== interviewerId)) throw new Error("This profile is already listed.");
+  if (interviewerId && !known.some((person) => person.id === interviewerId)) throw new Error("Interviewer was not found.");
+  const person = { id: interviewerId ?? newMemoryId("person"), ...(name.trim() ? { name: name.trim() } : {}), profileUrl: url.href };
+  return memoryStateSchema.parse({ ...state, opportunities: state.opportunities.map((item) => item.id === opportunityId ? {
+    ...item, knownInterviewers: interviewerId ? known.map((existing) => existing.id === interviewerId ? person : existing) : [...known, person],
+  } : item) });
+}
+
+export function removeKnownInterviewer(state: MemoryState, opportunityId: string, interviewerId: string): MemoryState {
+  return memoryStateSchema.parse({ ...state, opportunities: state.opportunities.map((item) => item.id === opportunityId ? {
+    ...item, knownInterviewers: item.knownInterviewers?.filter((person) => person.id !== interviewerId),
+  } : item) });
 }
 
 export function removeOpportunity(state: MemoryState, opportunityId: string): MemoryState {

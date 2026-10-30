@@ -1,8 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
-import { approveInterviewBatch, approveInterviewFact, approveManualCareerFact, approveManualInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity, currentReviewBatch, dismissInterviewBatch,
+import { addKnownInterviewer, approveInterviewBatch, approveInterviewFact, approveManualCareerFact, approveManualInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity, currentReviewBatch, dismissInterviewBatch,
   pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume, retainPendingFact, saveInterviewSession } from "./journey-memory";
+
+test("discarding one pending fact preserves approved memory and batch-accepts the remainder", () => {
+  let state = approveResumeReview(emptyMemoryState(), review, "resume.pdf", now);
+  const first = { id: "proposal-one", title: "Onboarding", text: "Interviewed customers during onboarding", source: "Interviewed customers during onboarding", sessionId: "session-review" };
+  const second = { id: "proposal-two", title: "Onboarding", text: "Revised onboarding navigation", source: "Revised onboarding navigation", sessionId: "session-review" };
+  state = retainPendingFact(retainPendingFact(state, first, now), second, now);
+  state = dismissInterviewBatch(state, [first]);
+  const reopened = memoryStateSchema.parse(JSON.parse(JSON.stringify(state)));
+  assert.deepEqual(pendingInterviewFacts(reopened).map((item) => item.id), [second.id]);
+  assert.equal(reopened.career.facts.some((fact) => fact.id === "resume-fact"), true);
+  const accepted = approveInterviewBatch(reopened, currentReviewBatch(pendingInterviewFacts(reopened)), now);
+  assert.deepEqual(accepted.career.facts.map((fact) => fact.id).sort(), ["resume-fact", second.id].sort());
+  assert.equal(accepted.proposals.length, 0);
+});
+
+test("user-supplied interviewer URL persists with its opportunity without claiming verification", () => {
+  const base = confirmOpportunity(emptyMemoryState(), { company: "Example", role: "Designer", confidence: "clear" }, "Design product experiences", now);
+  const saved = addKnownInterviewer(base, base.opportunities[0].id, "Alex", "https://www.linkedin.com/in/alex-example/");
+  assert.equal(memoryStateSchema.parse(JSON.parse(JSON.stringify(saved))).opportunities[0].knownInterviewers?.[0].name, "Alex");
+  const edited = addKnownInterviewer(saved, base.opportunities[0].id, "Alex Lee", "https://www.linkedin.com/in/alex-lee/", saved.opportunities[0].knownInterviewers?.[0].id);
+  assert.equal(edited.opportunities[0].knownInterviewers?.length, 1);
+  assert.equal(edited.opportunities[0].knownInterviewers?.[0].name, "Alex Lee");
+  assert.throws(() => addKnownInterviewer(base, base.opportunities[0].id, "Alex", "https://127.0.0.1/in/alex"));
+});
 
 test("removing a resume preserves independently supported interview facts", () => {
   let state = approveResumeReview(emptyMemoryState(), review, "resume.pdf", now);
