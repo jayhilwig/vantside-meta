@@ -27,6 +27,7 @@ const openerDots = Array.from({ length: 19 }, (_, column) => {
       const y = 240 + row * rowOffset;
       return (
         <circle key={`${side}-${column}-${row}`} cx={1024 + side * distance} cy={y} r={radius}>
+          {column < 4 && <animate attributeName="opacity" from="1" to="0" begin="1.58s" dur=".42s" fill="freeze" />}
           {row !== 0 && (
             <animate attributeName="cy" from={240 + row * rowOffset * 0.55} to={y}
               begin="0.16s" dur="1.42s" fill="freeze" calcMode="spline"

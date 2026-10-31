@@ -172,6 +172,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .hud-preview-trigger:hover .hud-preview-spark, .hud-preview-trigger:focus-visible .hud-preview-spark { transform: translate(2px, -2px); }
 .hud-preview { position: fixed; inset: auto; left: 50%; top: 50%; width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: 0; padding: 18px; overflow: auto; transform: translate(-50%, -50%); border: 1px solid #d7dad3; border-radius: 12px; background: #fff; color: var(--ink); box-shadow: 0 24px 80px #0004; }
 .hud-preview[open] { animation: hud-preview-in .22s ease-out both; }
+.confirm-dialog { width: min(420px, calc(100vw - 32px)); max-width: none; padding: 24px; border: 1px solid var(--border); border-radius: 9px; background: #fff; color: var(--ink); box-shadow: 0 24px 70px #0003; }
+.confirm-dialog::backdrop { background: #10181088; }
+.confirm-dialog h2 { margin: 0 0 10px; font-size: 19px; letter-spacing: -.03em; }
+.confirm-dialog p { margin: 0 0 24px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.confirm-delete { padding: 10px 13px; border: 1px solid var(--delete-red); border-radius: 4px; background: var(--delete-red); color: #fff; cursor: pointer; font-size: 12px; font-weight: 700; }
+.confirm-delete:hover { background: #d73129; }
 .hud-preview::backdrop { background: #0e1513b8; }
 .hud-preview-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; cursor: grab; touch-action: none; user-select: none; }
 .hud-preview-heading:active { cursor: grabbing; }
@@ -215,6 +222,38 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .job-requirement { padding: 9px 0; border-bottom: 1px solid var(--border); }
 .job-requirement details { color: var(--muted); }
 .job-requirement .text-button { margin-top: 5px; }
+.opportunity-section { max-width: 760px; margin-top: 18px; padding: 18px 0 2px; border-top: 1px solid var(--border); }
+.opportunity-section:first-child { margin-top: 0; border-top: 0; }
+.opportunity-section h3 { margin: 0 0 14px; font-weight: 750; }
+.opportunity-section .job-requirement:last-child { border-bottom: 0; }
+.evidence-gap { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.evidence-gap strong { color: #555b54; font-size: 11px; }
+.evidence-gap p { margin: 5px 0; }
+.evidence-gap details { color: var(--muted); font-size: 11px; }
+.opportunity-actions { max-width: 760px; display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+.opportunity-actions > .primary-button { flex: none; }
+.opportunity-actions > .saved-opportunity { flex-basis: 100%; }
+.coverage-summary { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 3px 12px; margin-bottom: 18px; }
+.coverage-summary > strong { font-size: 28px; line-height: 1; letter-spacing: -.05em; }
+.coverage-summary > span { color: #555b54; font-size: 11px; }
+.coverage-summary .detail-note { grid-column: 1 / -1; margin: 3px 0 0; }
+.coverage-track { grid-column: 1 / -1; overflow: hidden; height: 7px; margin-top: 8px; border-radius: 10px; background: #e5e9e2; }
+.coverage-track span { display: block; height: 100%; border-radius: inherit; background: var(--action); }
+.coverage-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.coverage-columns > div { min-width: 0; }
+.coverage-columns h4 { margin: 0 0 7px; font-size: 13px; }
+.coverage-item { padding: 11px 0; border-bottom: 1px solid var(--border); }
+.coverage-item:last-child { border-bottom: 0; }
+.coverage-item strong { font-size: 12px; }
+.coverage-item p { margin: 5px 0; }
+.coverage-item details { color: var(--muted); font-size: 11px; }
+.coverage-item details summary { cursor: pointer; }
+.opportunity-url-field { margin: 0 0 5px; }
+.saved-opportunity { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
+.saved-opportunity .detail-note { flex: 1 1 220px; margin: 0; }
+.saved-opportunity-delete { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 4px; background: #fff; color: var(--delete-red); cursor: pointer; }
+.saved-opportunity-delete:hover { background: #fff4f3; }
+.saved-opportunity-delete svg { width: 17px; height: 17px; }
 .job-follow-up { margin-top: 18px; padding: 15px; border: 1px solid var(--border); border-radius: 6px; }
 .resume-upload { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 15px; }
 .resume-upload .detail-note { margin: 0; overflow-wrap: anywhere; }
@@ -244,8 +283,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .opportunity-input-choice input { accent-color: var(--action); }
 .opportunity-inputs > textarea, .opportunity-inputs > input[type="url"] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; color: var(--ink); font: inherit; font-size: 12px; }
 .opportunity-analyze { margin: 18px 0; }
+.opportunity-pdf { display: grid; justify-items: start; gap: 16px; padding: 4px 0 8px; }
+.opportunity-pdf .file-button:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+.opportunity-pdf-selected { display: flex; align-items: center; gap: 18px; max-width: 100%; }
+.opportunity-pdf-selected .detail-note { margin: 0; overflow-wrap: anywhere; }
+.opportunity-pdf-selected .resume-file-delete { border: 0; background: transparent; cursor: pointer; }
 .input-clear { justify-self: start; width: fit-content; margin: 0 0 4px; }
-.interview-processing { align-items: flex-start; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 5px; background: #f7faf5; line-height: 1.6; }
+.interview-processing { display: flex; align-items: center; max-width: 760px; margin: 22px 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: 5px; background: #f7faf5; line-height: 1.6; }
 .interview-processing strong { color: var(--ink); font-size: 12px; }
 .practice-start { margin-top: 16px; }
 .file-button, .secondary-button { display: inline-flex; align-items: center; padding: 10px 13px; border: 1px solid var(--ink); border-radius: 4px; background: white; cursor: pointer; font-size: 12px; font-weight: 650; }
@@ -348,6 +392,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 @keyframes dot-processing { from { opacity: .35; transform: translateY(0); } to { opacity: 1; transform: translateY(-3px); } }
 
 @media (max-width: 760px) {
+  .coverage-columns { grid-template-columns: 1fr; gap: 18px; }
   .audio-device-grid { grid-template-columns: 1fr; }
   .review-project-heading { grid-template-columns: 1fr; }
   .journey-heading { padding: 38px 0 24px; }

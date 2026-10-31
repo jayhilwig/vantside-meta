@@ -18,11 +18,31 @@ test("real loopback endpoint routes all three modes only for an authorized local
       backend.on("exit", () => { clearTimeout(timer); reject(new Error("Local backend exited before listening.")); });
     });
     const token = readFileSync(join(root, "com.vantside.meta", "local-api-token"), "utf8").trim();
-    const call = (origin: string, body: object, supplied = token) => fetch(`http://127.0.0.1:${port}/analyze-opportunity`, {
+    const call = (origin: string, body: object, supplied = token, route = "/analyze-opportunity") => fetch(`http://127.0.0.1:${port}${route}`, {
       method: "POST", headers: { Origin: origin, "Content-Type": "application/json", "X-VantSide-Session": supplied }, body: JSON.stringify(body),
     });
+    // Resume PDF and both Step 3 modes use this same authenticated transport.
+    const resume = await call("http://tauri.localhost", { filename: "resume.pdf", data: "bad" }, token, "/extract-resume");
+    assert.notEqual(resume.status, 403);
     assert.equal((await call("http://tauri.localhost", { text: "short", careerFacts: [] })).status, 400);
+    const pdfAsText = await call("http://tauri.localhost", { text: "short", careerFacts: [] });
+    assert.equal(pdfAsText.status, 400);
+    assert.notEqual((await pdfAsText.json() as { error?: string }).error, "This practice API only accepts the local VantSide app.");
+    const missingOrigin = await fetch(`http://127.0.0.1:${port}/analyze-opportunity`, {
+      method: "POST", headers: { "Content-Type": "application/json", "X-VantSide-Session": token },
+      body: JSON.stringify({ text: "short", careerFacts: [] }),
+    });
+    assert.equal(missingOrigin.status, 400);
+    const missingToken = await fetch(`http://127.0.0.1:${port}/analyze-opportunity`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "short", careerFacts: [] }),
+    });
+    assert.equal(missingToken.status, 403);
+    assert.deepEqual(await missingToken.json(), { error: "This practice API only accepts the local VantSide app." });
     assert.equal((await call("null", { url: "http://example.com/job", careerFacts: [] })).status, 422);
+    const urlImport = await call("http://tauri.localhost", { url: "http://127.0.0.1/private" }, token, "/extract-job-url");
+    assert.equal(urlImport.status, 422);
+    assert.notEqual((await urlImport.json() as { error?: string }).error, "This practice API only accepts the local VantSide app.");
+    assert.equal((await call("https://evil.example", { url: "https://example.com/job" }, token, "/extract-job-url")).status, 403);
     assert.equal((await call("http://tauri.localhost", { filename: "bad.pdf", data: "bad", careerFacts: [] })).status, 400);
     const preflight = await fetch(`http://127.0.0.1:${port}/analyze-opportunity`, { method: "OPTIONS", headers: {
       Origin: "null", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-vantside-session",

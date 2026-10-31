@@ -29,6 +29,12 @@ export function authorized(origin: string | undefined, supplied: string | undefi
   return acceptedOrigin && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
 }
 
+export function authorizationFailure(origin: string | undefined, supplied: string | undefined, token: string): "untrusted-origin" | "missing-token" | "invalid-token" | null {
+  if (origin !== undefined && origin !== "null" && !allowedOrigins.has(origin)) return "untrusted-origin";
+  if (!supplied) return "missing-token";
+  return authorized(origin, supplied, token) ? null : "invalid-token";
+}
+
 export function preflightOrigin(origin: string | undefined): boolean {
   return !!origin && (origin === "null" || allowedOrigins.has(origin));
 }

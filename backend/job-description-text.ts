@@ -14,7 +14,7 @@ export function hasSourceQuote(content: string, excerpt: string): boolean {
   return haystack.some((word, start) => word === quote[0] && quote.every((part, index) => haystack[start + index] === part));
 }
 
-export async function extractJobPdfText(bytes: Buffer): Promise<string> {
+export async function extractJobPdfText(bytes: Uint8Array, onExtract?: (stats: { pages: number; characters: number; words: number }) => void): Promise<string> {
   const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true, disableFontFace: true });
   const document = await task.promise;
   try {
@@ -24,23 +24,22 @@ export async function extractJobPdfText(bytes: Buffer): Promise<string> {
       const page = await document.getPage(pageNumber);
       const content = await page.getTextContent();
       let text = "";
-      let previousEndX: number | undefined;
       let previousY: number | undefined;
       for (const item of content.items) {
         if (!("str" in item)) continue;
-        const x = item.transform[4];
         const y = item.transform[5];
         if (previousY !== undefined && Math.abs(y - previousY) > 2) text += "\n";
-        else if (previousEndX !== undefined && x - previousEndX > Math.max(1.5, item.height * .15)) text += " ";
+        else if (text && !text.endsWith("\n")) text += " ";
         text += item.str;
         if (item.hasEOL) text += "\n";
-        previousEndX = item.hasEOL ? undefined : x + item.width;
         previousY = item.hasEOL ? undefined : y;
       }
       pages.push(text.trim());
     }
-    const extracted = pages.join("\n").trim();
-    if (sourceWords(extracted).length < 30) throw new Error("We couldn't read enough text from this PDF. Try a text-based PDF or paste the description.");
+    const extracted = pages.join("\n").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+    const words = sourceWords(extracted).length;
+    onExtract?.({ pages: document.numPages, characters: extracted.length, words });
+    if (words < 30) throw new Error("We couldn't read enough text from this PDF. Try a text-based PDF or paste the description.");
     return extracted.slice(0, 15_000);
   } finally { await task.destroy(); }
 }

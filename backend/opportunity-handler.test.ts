@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { analyzeOpportunity } from "./opportunity-handler";
-import { alignCareerFacts, opportunityAnalysisSchema } from "../src/lib/opportunity-analysis";
+import { alignCareerFacts, assessOpportunityEvidence, opportunityAnalysisSchema } from "../src/lib/opportunity-analysis";
 import { approveResumeReview, confirmOpportunity, opportunityById, retainPendingFact } from "../src/lib/journey-memory";
 import { deleteOpportunity, emptyMemoryState, memoryStateSchema } from "./career-memory";
+import { readJobPdfText } from "../src/lib/job-pdf-text";
+import { extractJobPdfText } from "./job-description-text";
 
 function textPdf(text: string): string {
   const lines = text.match(/.{1,80}(?:\s|$)/g) ?? [text];
@@ -96,6 +98,10 @@ test("text-based PDF JD extracts actual text, validates quotes, and permits retr
     assert.equal(ungrounded.status, 422);
     const invalid = await analyzeOpportunity({ filename: "job.pdf", data: Buffer.from("not a PDF").toString("base64"), careerFacts: [] }, fetcher);
     assert.equal(invalid.status, 400);
+    const empty = await analyzeOpportunity({ filename: "empty.pdf", data: textPdf("No readable job details."), careerFacts: [] },
+      async () => { throw new Error("Inference must not run for an unreadable PDF"); });
+    assert.equal(empty.status, 422);
+    assert.match((empty.body as { error: string }).error, /couldn't read enough text/);
   } finally {
     if (provider === undefined) delete process.env.OPPORTUNITY_PROVIDER; else process.env.OPPORTUNITY_PROVIDER = provider;
     if (basetenKey === undefined) delete process.env.BASETEN_API_KEY; else process.env.BASETEN_API_KEY = basetenKey;
@@ -103,6 +109,55 @@ test("text-based PDF JD extracts actual text, validates quotes, and permits retr
       if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
     }
   }
+});
+
+test("actual PDF upload text and the same pasted text produce equivalent grounded analysis", async () => {
+  const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL, process.env.OPPORTUNITY_PROVIDER];
+  process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1";
+  process.env.META_MODEL = "mock"; delete process.env.OPPORTUNITY_PROVIDER;
+  try {
+    const pdf = Buffer.from(textPdf("Example seeks a Senior Platform designer. Design API platforms and Conduct user research. Collaborate with engineers and product managers to build accessible digital products. Lead workshops, present recommendations, test concepts with customers, and improve the onboarding experience."), "base64");
+    let stats: { pages: number; characters: number; words: number } | undefined;
+    const extracted = await extractJobPdfText(pdf, (value) => { stats = value; });
+    const uploaded = await readJobPdfText(new File([pdf], "job.pdf", { type: "application/pdf" }));
+    assert.equal(uploaded, extracted);
+    assert.equal(stats?.pages, 1);
+    assert.ok((stats?.words ?? 0) >= 30);
+    assert.ok((stats?.characters ?? 0) > 200);
+    const fetcher: typeof fetch = async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      assert.equal(request.messages[1].content, extracted);
+      return Response.json({ choices: [{ message: { content: JSON.stringify(analysis) } }] });
+    };
+    const pasted = await analyzeOpportunity({ text: extracted, careerFacts: [] }, fetcher);
+    const fromPdf = await analyzeOpportunity({ text: uploaded, careerFacts: [] }, fetcher);
+    assert.equal(pasted.status, 200);
+    assert.deepEqual(fromPdf, pasted);
+    await assert.rejects(readJobPdfText(new File([Buffer.from(textPdf("Empty job page."), "base64")], "empty.pdf")), /couldn't read enough text/);
+  } finally { for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL", "OPPORTUNITY_PROVIDER"].entries()) {
+    if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+  } }
+});
+
+test("an empty provider requirement array gets one grounded same-provider retry", async () => {
+  const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL, process.env.OPPORTUNITY_PROVIDER];
+  process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1";
+  process.env.META_MODEL = "mock"; delete process.env.OPPORTUNITY_PROVIDER;
+  try {
+    const text = "Example needs a Senior Platform designer. Design API platforms and Conduct user research. Work with engineers and product managers to build software products for customers.";
+    let calls = 0;
+    const result = await analyzeOpportunity({ text, careerFacts: [] }, async (_url, init) => {
+      calls++;
+      const request = JSON.parse(String(init?.body));
+      assert.equal(request.model, "mock");
+      return Response.json({ choices: [{ message: { content: JSON.stringify(calls === 1 ? { ...analysis, requirements: [] } : analysis) } }] });
+    });
+    assert.equal(calls, 2);
+    assert.equal(result.status, 200);
+    assert.equal((result.body as { analysis: { requirements: unknown[] } }).analysis.requirements.length, 2);
+  } finally { for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL", "OPPORTUNITY_PROVIDER"].entries()) {
+    if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+  } }
 });
 
 test("alignment distinguishes supported leads from missing evidence and stores targeted questions", () => {
@@ -236,4 +291,13 @@ test("single generic overlap does not claim a career strength", () => {
   const alignment = alignCareerFacts(parsed, [{ id: "fact-1", text: "I supported a product platform" }]);
   assert.equal(alignment.strengths.length, 0);
   assert.deepEqual(alignment.needsEvidence, ["api-design", "research"]);
+});
+
+test("opportunity review distinguishes strong, possible, and unrecorded evidence", () => {
+  const parsed = opportunityAnalysisSchema.parse({ ...analysis, requirements: [...analysis.requirements,
+    { id: "security", kind: "required", text: "Lead security operations", sourceExcerpt: "Lead security operations" }] });
+  const facts = [{ id: "fact-1", text: "I designed API platforms" }, { id: "fact-2", text: "I supported customer research" }];
+  const assessed = assessOpportunityEvidence(parsed, facts, alignCareerFacts(parsed, facts));
+  assert.deepEqual(assessed.map((item) => item.level), ["strong", "partial", "none"]);
+  assert.deepEqual(assessed.map((item) => item.factId), ["fact-1", "fact-2", undefined]);
 });

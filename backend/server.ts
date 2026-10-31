@@ -4,11 +4,12 @@ import { retrieveCues } from "./memory-retrieval";
 import { decideHudCue } from "./hud-decision";
 import { extractOpportunity, extractResume } from "./extraction-handler";
 import { analyzeOpportunity } from "./opportunity-handler";
+import { extractJobUrl } from "./job-url-handler";
 import { startInterview, continueInterview } from "./interview-handler";
 import { createLiveSession } from "./live-handler";
 import { proposeLiveMemory } from "./live-proposals";
 import { transcribeAnswer } from "./transcribe-handler";
-import { authorized, loadLocalToken, preflightOrigin, validLoopbackHost } from "./local-api-auth";
+import { authorizationFailure, loadLocalToken, preflightOrigin, validLoopbackHost } from "./local-api-auth";
 
 const host = "127.0.0.1";
 const port = Number(process.env.CUE_API_PORT ?? 8787);
@@ -36,20 +37,22 @@ const server = createServer(async (request, response) => {
     response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-VantSide-Session");
   }
-  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals"]);
+  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/extract-job-url", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals"]);
   if (request.method === "OPTIONS" && routes.has(request.url ?? "") && preflightOrigin(origin)) {
     response.writeHead(204); response.end(); return;
   }
-  if (!authorized(origin, request.headers["x-vantside-session"] as string | undefined, localToken)) {
+  const failure = authorizationFailure(origin, typeof request.headers["x-vantside-session"] === "string" ? request.headers["x-vantside-session"] : undefined, localToken);
+  if (failure) {
     console.warn("Local API authorization rejected", {
       origin: origin === undefined ? "missing" : origin === "null" ? "opaque" : preflightOrigin(origin) ? "allowed" : "untrusted",
       route: routes.has(request.url ?? "") ? request.url : "unknown",
-      stage: "origin-or-token",
+      method: request.method, reason: failure,
     });
     send(response, 403, { error: "This practice API only accepts the local VantSide app." });
     return;
   }
   if (request.method !== "POST" || !routes.has(request.url ?? "")) {
+    console.warn("Local API unsupported request", { method: request.method, route: "unknown" });
     send(response, 404, { error: "Not found." });
     return;
   }
@@ -91,6 +94,7 @@ const server = createServer(async (request, response) => {
   try {
     const result = request.url === "/extract-resume" ? await extractResume(body)
       : request.url === "/extract-opportunity" ? await extractOpportunity(body)
+      : request.url === "/extract-job-url" ? await extractJobUrl(body)
       : request.url === "/analyze-opportunity" ? await analyzeOpportunity(body)
       : request.url === "/interview/start" ? await startInterview(body, fetch, controller.signal)
       : request.url === "/interview/live/session" ? await createLiveSession(body, fetch, controller.signal)
