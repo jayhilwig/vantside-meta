@@ -7,6 +7,7 @@ export function liveSpeakerStatus(now: number, lastInterviewerAudio: number, las
 
 type Options = {
   microphoneId?: string; outputId?: string; signal: AbortSignal;
+  openingPrompt?: string;
   createSession(sdp: string): Promise<{ sdp: string }>;
   onStatus(status: LiveStatus): void; onLevel(level: number): void; onError(message: string): void;
 };
@@ -65,7 +66,7 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
       if (message.type === "session.started") {
         ready = true; window.clearTimeout(readyTimer); reportStatus("listening");
         channel.send(JSON.stringify({ type: "session.commentary.append", event_id: "opening_greeting", delegation_id: null,
-          content: "Greet the candidate briefly as their practice interviewer. Ask one opening question about their approved professional background, then listen." }));
+          content: options.openingPrompt ?? "Greet the candidate briefly as their practice interviewer. Ask one opening question about their approved professional background, then listen." }));
       } else if (message.type === "session.input_transcript.delta" && typeof message.delta === "string") userDeltas.push(message.delta);
       else if (message.type === "session.closed") close();
       else if (message.type === "error") { close(false); options.onError("The voice session reported an error. Please restart it."); }

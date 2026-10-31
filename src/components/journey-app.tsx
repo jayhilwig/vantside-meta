@@ -4,6 +4,7 @@ import { ChangeEvent, type PointerEvent as ReactPointerEvent, useCallback, useEf
 import Image from "next/image";
 import { BrandMark, OpeningSequence, PracticeApp } from "./practice-app";
 import { InterviewPracticeApp } from "./interview-practice-app";
+import { ConversationalPracticeApp } from "./conversational-practice-app";
 import { startLiveInterview, type LiveInterview, type LiveStatus } from "@/lib/live-interview";
 import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, interviewEncouragement, interviewTime } from "@/lib/interview-timing";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
@@ -106,7 +107,7 @@ export function JourneyApp() {
   const [rounds, setRounds] = useState<MemoryState["rounds"]>([]);
   const [, refreshBrand] = useState(0);
   const [step, setStep] = useState<Step>(1);
-  const [practice, setPractice] = useState<"personal" | "synthetic" | null>(null);
+  const [practice, setPractice] = useState<"personal" | "synthetic" | "voice" | null>(null);
   const [resumeName, setResumeName] = useState("");
   const [proposal, setProposal] = useState<ResumeProposal | null>(null);
   const [approved, setApproved] = useState<MemoryProject[]>([]);
@@ -679,6 +680,26 @@ export function JourneyApp() {
       roundLabel: selectedRound?.label, interviewer: selectedRound?.interviewer,
       requirements: selected.requirements, preparationQuestions: selected.preparationQuestions }} onBack={() => setPractice(null)} />;
   }
+  if (practice === "voice") {
+    const selected = opportunityById(memoryRef.current, activeOpportunityId);
+    if (!selected) return <main className="app-shell"><div className="page-wrap" role="alert">Select a saved opportunity. <button type="button" onClick={() => setPractice(null)}>Back</button></div></main>;
+    const round = rounds.find((item) => item.id === selectedRoundId && item.opportunityId === selected.id);
+    const facts = new Set(memoryRef.current.career.facts.map((item) => item.id));
+    return <ConversationalPracticeApp profile={approvedProfile} projects={approved} context={{ company: selected.company, role: selected.role,
+      round: round?.label ?? "General interview", description: selected.description, requirements: selected.requirements?.map((item) => item.text) ?? [],
+      strengths: selected.alignment?.strengths.filter((item) => facts.has(item.factId)).map((item) => selected.requirements?.find((requirement) => requirement.id === item.requirementId)?.text).filter((item): item is string => !!item) ?? [],
+      areas: selected.alignment?.needsEvidence.map((id) => selected.requirements?.find((item) => item.id === id)?.text).filter((item): item is string => !!item) ?? [] }}
+      onBack={() => setPractice(null)} onProposals={async (items) => {
+        const sessionId = newMemoryId("session");
+        const existing = new Set([...memoryRef.current.career.facts.map((item) => normalizeFact(item.text)),
+          ...memoryRef.current.proposals.map((item) => normalizeFact(item.text))]);
+        const proposals = items.filter((item) => { const key = normalizeFact(item.text); if (existing.has(key)) return false; existing.add(key); return true; })
+          .map((item) => ({ ...item, id: newMemoryId("fact"), sessionId, answer: item.source, opportunityId: selected.id }));
+        if (!proposals.length) throw new Error("These experiences are already in Career Memory.");
+        const next = await commitMemory((state) => proposals.reduce((current, item) => retainPendingFact(current, item, new Date().toISOString()), state));
+        setMemoryProposals(pendingInterviewFacts(next)); setPractice(null); setStep(2);
+      }} />;
+  }
   if (practice) return <PracticeApp onBack={() => setPractice(null)} />;
 
   const liveRunning = ["connecting", "listening", "user-speaking", "speaking", "paused"].includes(liveStatus);
@@ -830,10 +851,10 @@ export function JourneyApp() {
           <div className="detail-heading"><span className="eyebrow">04 / YOUR INTERVIEW</span><h2>Prepare for your interview.</h2></div>
           {!memoryRef.current.opportunities.length ? <p className="detail-note">Save an opportunity in Step 3 to prepare for it here.</p> : <>
             <div className="opportunity-picker" aria-label="Saved opportunities">{memoryRef.current.opportunities.map((item) => { const itemRounds = rounds.filter((round) => round.opportunityId === item.id); return <button key={item.id} type="button" className={`opportunity-picker-item${activeOpportunityId === item.id ? " selected" : ""}`} aria-pressed={activeOpportunityId === item.id} onClick={() => selectSavedOpportunity(item.id)}><CompanyIcon company={item.company} logo={item.brandLogoDataUrl}/><strong>{item.company}</strong><span>{item.role}</span><small>{itemRounds.filter((round) => round.status === "completed").length} of {itemRounds.length} rounds completed</small></button>; })}</div>
-            {activeOpportunityId && <section className="round-setup"><div className="selected-opportunity-brand"><CompanyIcon company={confirmedOpportunity?.company ?? ""} logo={opportunityById(memoryRef.current, activeOpportunityId)?.brandLogoDataUrl}/><strong>{confirmedOpportunity?.company} · {confirmedOpportunity?.role}</strong></div><h3>Interview rounds</h3>
+            {activeOpportunityId && <section className="round-setup"><h3>Interview rounds</h3>
               <div className="round-list">{rounds.filter((round) => round.opportunityId === activeOpportunityId).map((round) => <button type="button" key={round.id} className={`round-item${selectedRoundId === round.id ? " selected" : ""}`} aria-pressed={selectedRoundId === round.id} onClick={() => { setSelectedRoundId(round.id); setRoundName(["Recruiter / HR", "Hiring Manager", "Team Member", "Panel Interview", "Executive / Leadership", "Portfolio / Technical Interview"].includes(round.label) ? round.label : "Other"); setRoundCustom(round.label); }}><strong>{round.label}</strong><span>{round.interviewer || ""}</span><small>{round.status === "completed" ? "Completed" : round.status === "cancelled" ? "Cancelled" : "Upcoming"}</small></button>)}</div>
               <div className="round-editor"><label className="field-label">Who are you interviewing with?<select value={roundName} onChange={(event) => { if (event.target.value === "Other" && roundName !== "Other") setRoundCustom(""); setRoundName(event.target.value); }}><option value="">Choose an interview round</option>{["Recruiter / HR", "Hiring Manager", "Team Member", "Panel Interview", "Executive / Leadership", "Portfolio / Technical Interview", "Other"].map((label) => <option key={label}>{label}</option>)}</select></label>{roundName === "Other" && <label className="field-label">Describe the interview<input value={roundCustom} maxLength={100} onChange={(event) => setRoundCustom(event.target.value)}/></label>}<div className="inline-actions"><button type="button" className="secondary-button" disabled={busy || !roundName || (roundName === "Other" && roundCustom.trim().length < 2)} onClick={() => void run(async () => { const existing = rounds.find((item) => item.id === selectedRoundId && item.opportunityId === activeOpportunityId); const next = await commitMemory((state) => saveRound(state, activeOpportunityId, roundName === "Other" ? roundCustom : roundName, existing?.interviewer ?? "", existing?.status ?? "planned", selectedRoundId ?? undefined)); setSelectedRoundId(next.rounds.at(-1)?.id ?? null); })}>{selectedRoundId ? "Save Round" : "Add Round"}</button>{selectedRoundId && <button type="button" className="text-button" onClick={() => { setSelectedRoundId(null); setRoundName(""); setRoundCustom(""); }}>New round</button>}</div></div>
-              <div className="interview-actions"><button type="button" className="secondary-button" disabled title="Conversational practice is not available yet">Practice Interview</button><button type="button" className="go-live-button" disabled={!canPractice || !selectedRoundId} onClick={() => setPractice("personal")}>Go Live</button></div>
+              <div className="interview-actions"><button type="button" className="secondary-button" disabled={!canPractice} onClick={() => setPractice("voice")}>Practice Interview</button><button type="button" className="go-live-button" disabled={!canPractice || !selectedRoundId} onClick={() => setPractice("personal")}><span className="go-live-play" aria-hidden="true">▶</span>Go Live</button></div>
             </section>}
           </>}
         </>}

@@ -156,3 +156,20 @@ test("edited interview batch approves together, rejects duplicates, and discards
   assert.deepEqual(discarded.proposals.map((item) => item.id), ["earlier"]);
   assert.equal(discarded.career.facts.length, 1);
 });
+
+test("practice proposals remain pending and scoped to their saved opportunity after reload", () => {
+  let state = approveResumeReview(emptyMemoryState(), review, "resume.pdf", now);
+  state = confirmOpportunity(state, { company: "Atlas", role: "Designer", confidence: "clear" }, "Design an API platform", now);
+  state = confirmOpportunity(state, { company: "Beacon", role: "Researcher", confidence: "clear" }, "Research customers", now);
+  const [atlas, beacon] = state.opportunities;
+  state = retainPendingFact(state, { id: "practice-proposal", title: "API platform", text: "Mapped API onboarding needs",
+    source: "I mapped API onboarding needs", answer: "I mapped API onboarding needs", sessionId: "practice-session", opportunityId: atlas.id }, now);
+  const reopened = memoryStateSchema.parse(JSON.parse(JSON.stringify(state)));
+  assert.equal(reopened.career.facts.some((fact) => fact.id === "practice-proposal"), false);
+  assert.equal(reopened.proposals[0].opportunityId, atlas.id);
+  assert.equal(reopened.proposals.some((item) => item.opportunityId === beacon.id), false);
+  assert.equal(reopened.career.sources.find((item) => item.id === reopened.proposals[0].sourceIds[0])?.excerpt, "I mapped API onboarding needs");
+  const approved = approveInterviewBatch(reopened, currentReviewBatch(pendingInterviewFacts(reopened)), now);
+  assert.equal(approved.career.facts.some((fact) => fact.id === "practice-proposal"), true);
+  assert.equal(approved.proposals.length, 0);
+});

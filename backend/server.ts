@@ -9,6 +9,7 @@ import { companyBrand } from "./company-brand";
 import { startInterview, continueInterview } from "./interview-handler";
 import { createLiveSession } from "./live-handler";
 import { proposeLiveMemory } from "./live-proposals";
+import { reviewPractice } from "./practice-review";
 import { transcribeAnswer } from "./transcribe-handler";
 import { authorizationFailure, loadLocalToken, preflightOrigin, validLoopbackHost } from "./local-api-auth";
 
@@ -38,7 +39,7 @@ const server = createServer(async (request, response) => {
     response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-VantSide-Session");
   }
-  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/extract-job-url", "/company-brand", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals"]);
+  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/extract-job-url", "/company-brand", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals", "/interview/practice/review"]);
   if (request.method === "OPTIONS" && routes.has(request.url ?? "") && preflightOrigin(origin)) {
     response.writeHead(204); response.end(); return;
   }
@@ -101,6 +102,7 @@ const server = createServer(async (request, response) => {
       : request.url === "/interview/start" ? await startInterview(body, fetch, controller.signal)
       : request.url === "/interview/live/session" ? await createLiveSession(body, fetch, controller.signal)
       : request.url === "/interview/live/proposals" ? await proposeLiveMemory(body, fetch, controller.signal)
+      : request.url === "/interview/practice/review" ? await reviewPractice(body, fetch, controller.signal)
       : request.url === "/interview/turn" ? await continueInterview(body, fetch, controller.signal)
       : request.url === "/interview/transcribe" ? await transcribeAnswer(body, fetch, controller.signal)
       : request.url === "/retrieve-cues" ? retrieveCues(body)

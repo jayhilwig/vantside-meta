@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createLiveSession } from "./live-handler";
+import { createLiveSession, liveSessionRequest } from "./live-handler";
 import { proposeLiveMemory } from "./live-proposals";
 
 test("a finished interview with no grounded new facts returns an empty review", async () => {
@@ -18,6 +18,19 @@ test("a finished interview with no grounded new facts returns an empty review", 
 
 const context = { sdp: "v=0\r\no=- 123 456 IN IP4 127.0.0.1\r\n", profile: { profession: "Designer", seniority: "Senior", careerSummary: "Designed a product launch with customer research." },
   projects: [{ projectId: "launch", title: "Launch", facts: [{ id: "research", text: "Led customer research", source: "Led customer research" }] }] };
+
+test("practice opening uses only the selected opportunity and round while Step 2 stays foundational", () => {
+  const foundational = liveSessionRequest(context);
+  assert.match(foundational.session.input[0].content[0].text, /approved background/);
+  assert.doesNotMatch(foundational.session.input[0].content[0].text, /Atlas/);
+  const practice = liveSessionRequest({ ...context, practice: { company: "Atlas", role: "Product Designer", round: "Hiring Manager",
+    description: "Design an API platform", requirements: ["API platform design"], strengths: ["User research"], areas: ["API platform design"] } });
+  const prompt = practice.session.input[0].content[0].text;
+  assert.match(prompt, /Atlas.*Hiring Manager/);
+  assert.match(prompt, /API platform design/);
+  assert.match(prompt, /Led customer research/);
+  assert.doesNotMatch(prompt, /Other Company/);
+});
 
 test("live session keeps key server-side and sends approved context with WebRTC offer", async () => {
   const previous = process.env.OPENAI_API_KEY; process.env.OPENAI_API_KEY = "mock-only";
@@ -43,6 +56,7 @@ test("live startup handles missing key, invalid input, authorization, malformed 
     assert.equal((await createLiveSession(context)).status, 503);
     process.env.OPENAI_API_KEY = "mock-only";
     assert.equal((await createLiveSession({ ...context, sdp: "bad" })).status, 400);
+    assert.equal((await createLiveSession({ sdp: context.sdp, projects: context.projects })).status, 400);
     const auth = await createLiveSession(context, async () => new Response("private error", { status: 401 }));
     assert.match(auth.body.error ?? "", /credentials/); assert.doesNotMatch(auth.body.error ?? "", /private error/);
     assert.equal((await createLiveSession(context, async () => Response.json({ session: { id: "bad" } }))).status, 502);

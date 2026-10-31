@@ -44,7 +44,7 @@ The current Opportunity review extracts company, role, supported seniority and s
 
 Practice for a specific interview round. Voice interaction uses the professional history, approved memories, job requirements, and prior-round summaries to present compact, relevant visual cues. Capture new information during practice and propose memory updates.
 
-In the intended product, user-approved reusable career facts persist globally after each round; company or round-specific context stays with that opportunity. If the job doesn't work out, the professional memory remains useful for the next one. The current build offers personalized text practice after one approved memory and a confirmed opportunity. The local schema supports round records, but the current UI does not create or manage rounds yet.
+In the intended product, user-approved reusable career facts persist globally after each round; company or round-specific context stays with that opportunity. If the job doesn't work out, the professional memory remains useful for the next one. The current build has saved opportunity rounds, personalized text cues, and a conversational GPT-Live practice path using the selected opportunity and round. A post-session Meta review uses captured user speech to suggest topics, strengths, areas to practice, and pending facts. Sparse or missing transcript evidence produces no invented feedback. The practice voice path still needs manual Windows/Tauri verification; full transcripts and raw audio remain session-only.
 
 ## Memory model
 
