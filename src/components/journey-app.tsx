@@ -9,6 +9,7 @@ import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, inte
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
 import { localApiHeaders } from "@/lib/local-api-auth";
 import { readJobPdfText } from "@/lib/job-pdf-text";
+import { saveRound } from "@/lib/interview-rounds";
 import { isCurrentOperation, visibleStepError } from "@/lib/step-workflow";
 import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-schema";
 import type { OpportunityAnalysis } from "@/lib/opportunity-analysis";
@@ -95,6 +96,11 @@ export function JourneyApp() {
   const opportunityRequestRef = useRef<AbortController | null>(null);
   const operationRef = useRef(0);
   const [activeOpportunityId, setActiveOpportunityId] = useState<string | null>(null);
+  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
+  const [roundName, setRoundName] = useState("");
+  const [roundInterviewer, setRoundInterviewer] = useState("");
+  const [roundStatus, setRoundStatus] = useState<"planned" | "completed">("planned");
+  const [rounds, setRounds] = useState<MemoryState["rounds"]>([]);
   const [step, setStep] = useState<Step>(1);
   const [practice, setPractice] = useState<"personal" | "synthetic" | null>(null);
   const [resumeName, setResumeName] = useState("");
@@ -106,7 +112,6 @@ export function JourneyApp() {
   const [opportunityDraft, setOpportunityDraft] = useState<Opportunity | null>(null);
   const [jobAnalysis, setJobAnalysis] = useState<OpportunityAnalysis | null>(null);
   const [jobAlignment, setJobAlignment] = useState<{ strengths: Array<{ requirementId: string; factId: string }>; needsEvidence: string[] } | null>(null);
-  const [jobAnswer, setJobAnswer] = useState("");
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [microphoneListAuthorized, setMicrophoneListAuthorized] = useState(false);
   const [microphoneId, setMicrophoneId] = useState("");
@@ -166,6 +171,7 @@ export function JourneyApp() {
       setResumeApproved(Boolean(state.career.identity && lastResume));
       setResumeName(lastResume?.label ?? "");
       setMemoryProposals(pendingInterviewFacts(state));
+      setRounds(state.rounds);
       setTalkSaved(state.sessions.some((session) => session.status === "paused" || session.status === "completed"));
       if (lastOpportunity) {
         setActiveOpportunityId(lastOpportunity.id);
@@ -214,7 +220,7 @@ export function JourneyApp() {
     const operation = writeQueueRef.current.then(async () => {
       const next = transform(memoryRef.current);
       const revision = await saveCareerMemory(next, revisionRef.current);
-      memoryRef.current = next; revisionRef.current = revision;
+      memoryRef.current = next; revisionRef.current = revision; setRounds(next.rounds);
       return next;
     });
     writeQueueRef.current = operation.catch(() => undefined);
@@ -381,6 +387,17 @@ export function JourneyApp() {
     if (!method || method === "url") setOpportunityUrl("");
     if (!method || method === "pdf") { opportunityPdfRef.current = null; setOpportunityPdfName(""); }
     if (!method) setOpportunityMethod("url");
+  }
+
+  function selectSavedOpportunity(id: string) {
+    const selected = opportunityById(memoryRef.current, id);
+    if (!selected) return;
+    setActiveOpportunityId(id);
+    setConfirmedOpportunity({ company: selected.company, role: selected.role, confidence: "clear" });
+    setJobAnalysis(selected.requirements ? { company: selected.company, role: selected.role, seniority: selected.seniority,
+      confidence: "clear", requirements: selected.requirements } : null);
+    setJobAlignment(selected.alignment ?? null);
+    setSelectedRoundId(null); setRoundName(""); setRoundInterviewer(""); setRoundStatus("planned");
   }
 
   function chooseOpportunityMethod(method: "text" | "url" | "pdf") {
@@ -614,9 +631,9 @@ export function JourneyApp() {
     void run(async () => {
       await commitMemory(() => emptyMemoryState());
       activeSessionRef.current = null; setApproved([]); setApprovedProfile(null); setResumeApproved(false); setResumeName(""); setProposal(null);
-      setMemoryProposals([]); setTalkSaved(false); setConfirmedOpportunity(null); setActiveOpportunityId(null); setOpportunityDraft(null);
+      setMemoryProposals([]); setTalkSaved(false); setConfirmedOpportunity(null); setActiveOpportunityId(null); setSelectedRoundId(null); setOpportunityDraft(null);
       opportunityPdfRef.current = null; setOpportunitySource(null); setOpportunityMethod("url");
-      setOpportunityInput(""); setOpportunityUrl(""); setOpportunityUrlText(""); setOpportunityPdfName(""); setJobAnalysis(null); setJobAlignment(null); setJobAnswer("");
+      setOpportunityInput(""); setOpportunityUrl(""); setOpportunityUrlText(""); setOpportunityPdfName(""); setJobAnalysis(null); setJobAlignment(null);
       setProjectTitle(""); setProjectFact(""); setSavedNotice(false); setMicrophones([]); setMicrophoneId(""); setMicrophoneStatus(""); setStep(1);
       setNewProjectId(""); setMicrophoneLevel(0); setManualError("");
     });
@@ -651,8 +668,10 @@ export function JourneyApp() {
 
   if (practice === "personal") {
     const selected = opportunityById(memoryRef.current, activeOpportunityId);
+    const selectedRound = rounds.find((round) => round.id === selectedRoundId && round.opportunityId === activeOpportunityId);
     if (!selected) return <main className="app-shell"><div className="page-wrap" role="alert">The selected opportunity is no longer available. <button type="button" className="text-button" onClick={() => setPractice(null)}>Return to your steps</button></div></main>;
     return <InterviewPracticeApp projects={approved} opportunity={{ company: selected.company, role: selected.role,
+      roundLabel: selectedRound?.label, interviewer: selectedRound?.interviewer,
       requirements: selected.requirements, preparationQuestions: selected.preparationQuestions }} onBack={() => setPractice(null)} />;
   }
   if (practice) return <PracticeApp onBack={() => setPractice(null)} />;
@@ -677,7 +696,7 @@ export function JourneyApp() {
       <nav className="steps-grid" aria-label="Four steps">
         {([1, 2, 3, 4] as Step[]).map((number) => {
           const title = ["Your Resume", "Let's Talk", "The Opportunity", "Your Interview"][number - 1];
-          const locked = number === 2 ? !resumeApproved && !hasMemory : number === 3 ? !hasMemory : number === 4 ? !canPractice : false;
+          const locked = number === 2 ? !resumeApproved && !hasMemory : number === 3 ? !hasMemory : number === 4 ? !hasMemory : false;
           const complete = number === 1 ? resumeApproved : number === 2 ? talkSaved && hasMemory : number === 3 ? !!confirmedOpportunity : false;
           const description = ["Establish your professional background.", "Share deeper experiences to build your Career Memory.", "Explore how your experience connects to a specific job.", "Practice for the role and identify supported strengths and areas to explore."][number - 1];
           return <button key={number} type="button" className={`step-card${step === number ? " active" : ""}${number === 2 && stepTwoActivated ? " step-activated" : ""}`} disabled={locked}
@@ -756,8 +775,7 @@ export function JourneyApp() {
              <label className={`opportunity-input-choice${opportunityMethod === "pdf" ? " selected" : ""}`}><input type="radio" name="job-source" checked={opportunityMethod === "pdf"} onChange={() => chooseOpportunityMethod("pdf")}/><span>Upload a job-description PDF</span></label>
              {opportunityMethod === "pdf" && <div className="opportunity-pdf"><label className="file-button">Upload Job Description PDF<input type="file" accept="application/pdf,.pdf" disabled={!!opportunityPdfRef.current} onChange={(event) => selectPdf(event, "opportunity")}/></label>{opportunityPdfName && <div className="opportunity-pdf-selected"><span className="detail-note">{opportunityPdfName}{!opportunityPdfRef.current ? " · Choose again to analyze" : ""}</span><button type="button" className="resume-file-delete" aria-label="Remove selected job description PDF" title="Remove PDF" onClick={() => resetOpportunityInput("pdf")}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5"/></svg></button></div>}</div>}
            </div>
-           <div className="inline-actions opportunity-analyze"><button type="button" className="primary-button" disabled={busy || (opportunityMethod === "url" && !opportunityUrl.trim()) || (opportunityMethod === "text" && opportunityInput.trim().length < 30) || (opportunityMethod === "pdf" && !opportunityPdfRef.current)} onClick={() => void run(analyzeDescription, 3, opportunityMethod === "pdf" ? "Reading PDF and analyzing description…" : opportunityMethod === "url" ? "Reading posting and analyzing description…" : "Analyzing description…")}>Analyze Description</button>{busy && processing && <span className="resume-processing" role="status"><span className="resume-processing-dots" aria-hidden="true"><i/><i/><i/><i/></span>{processing}</span>}</div>
-           {(opportunityInput || opportunityUrl || opportunityPdfName || opportunityDraft) && <button type="button" className="text-button input-clear" onClick={() => resetOpportunityInput()}>Start over with a different description</button>}
+           <div className="inline-actions opportunity-analyze"><button type="button" className="primary-button" disabled={busy || (!!jobAnalysis && !!opportunitySource) || (opportunityMethod === "url" && !opportunityUrl.trim()) || (opportunityMethod === "text" && opportunityInput.trim().length < 30) || (opportunityMethod === "pdf" && !opportunityPdfRef.current)} onClick={() => void run(analyzeDescription, 3, opportunityMethod === "pdf" ? "Reading PDF and analyzing description…" : opportunityMethod === "url" ? "Reading posting and analyzing description…" : "Analyzing description…")}>Analyze Description</button>{(opportunityInput || opportunityUrl || opportunityPdfName || opportunityDraft) && <button type="button" className="secondary-button" disabled={busy} onClick={() => resetOpportunityInput()}>Start Over</button>}{busy && processing && <span className="resume-processing" role="status"><span className="resume-processing-dots" aria-hidden="true"><i/><i/><i/><i/></span>{processing}</span>}</div>
           {opportunityDraft && <section className="opportunity-review opportunity-section"><h3>Company and Role</h3><p className="detail-note">{opportunityDraft.confidence === "uncertain" || !opportunityDraft.company || !opportunityDraft.role ? "Check the missing or uncertain details before saving." : "Check these details before saving."}</p>
             <label className="field-label">Company<input value={opportunityDraft.company} maxLength={100} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, company: event.target.value, confidence: "uncertain" })}/></label>
             {!opportunityDraft.company && <button type="button" className="text-button" onClick={() => setOpportunityDraft({ ...opportunityDraft, company: "Not specified", confidence: "uncertain" })}>Company not listed</button>}
@@ -767,18 +785,9 @@ export function JourneyApp() {
             <section className="opportunity-section"><h3>What Matters for This Opportunity</h3>{jobAnalysis.seniority && <p>Seniority stated: {jobAnalysis.seniority}</p>}
             {jobAnalysis.requirements.map((item) => <div key={item.id} className="job-requirement"><strong>{item.kind === "required" ? "Required qualification or skill" : item.kind === "preferred" ? "Preferred" : item.kind === "domain" ? "Domain experience" : "Responsibility"}</strong> · {item.text}</div>)}</section>
             <section className="opportunity-section coverage-section"><h3>Career Memory Coverage</h3>
-            {coverage?.percentage === null ? <p className="detail-note">Coverage will appear when the description has assessable requirements.</p> : coverage && <div className="coverage-summary"><strong>{coverage.percentage}%</strong><span>{coverage.supported} of {coverage.total} distinct requirements link to approved Career Memory.</span><div className="coverage-track" role="progressbar" aria-label="Career Memory evidence coverage" aria-valuenow={coverage.percentage} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${coverage.percentage}%` }}/></div><p className="detail-note">Equal weight per requirement. This measures recorded evidence, not hiring odds.</p></div>}
+            {coverage?.percentage === null ? <p className="detail-note">Coverage will appear when the description has assessable requirements.</p> : coverage && <div className="coverage-summary"><strong>{coverage.percentage}%</strong><span>{coverage.supported} of {coverage.total} distinct requirements supported.</span><div className="coverage-track" role="progressbar" aria-label="Career Memory evidence coverage" aria-valuenow={coverage.percentage} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${coverage.percentage}%` }}/></div></div>}
             {coverage && coverage.percentage !== null && <div className="coverage-columns"><div><h4>Strengths</h4>{!coverage.strengths.length && <p className="detail-note">No approved memory links found yet.</p>}{coverage.strengths.map(({ requirement, factId }) => { const fact = approvedFacts.find((item) => item.id === factId); return fact ? <div className="coverage-item" key={requirement.id}><strong>{requirement.text}</strong><p>{fact.text.length > 140 ? `${fact.text.slice(0, 137).trimEnd()}…` : fact.text}</p><details><summary>View approved fact and source</summary><p>{fact.text}</p><p>{fact.source}</p></details></div> : null; })}</div><div><h4>Areas to Explore</h4>{!coverage.areas.length && <p className="detail-note">All assessed requirements have recorded support.</p>}{coverage.areas.map(({ requirement, level, factId }) => <div className="coverage-item" key={requirement.id}><strong>{requirement.text}</strong>{level === "partial" && <p className="detail-note">Possible connection to discuss</p>}<details><summary>View context</summary><p>From the job description: {requirement.sourceExcerpt}</p>{factId && <p>Related approved memory: {approvedFacts.find((fact) => fact.id === factId)?.text}</p>}</details></div>)}</div></div>}
-            {!!confirmedOpportunity && !!coverage?.areas.length && <div className="job-follow-up"><h3>Share a relevant example</h3><p>What past work can you share that relates to {coverage.areas[0].requirement.text.toLowerCase()}?</p>
-              <label className="field-label">Your answer<textarea value={jobAnswer} maxLength={300} rows={3} onChange={(event) => setJobAnswer(event.target.value)}/></label>
-              <button type="button" className="secondary-button" disabled={jobAnswer.trim().length < 10 || busy} onClick={() => void run(async () => {
-                const sessionId = activeSessionRef.current ?? newMemoryId("session"); activeSessionRef.current = sessionId;
-                const quote = jobAnswer.trim();
-                const pending: MemoryProposal = { id: newMemoryId("fact"), title: projectTitle.trim() || "Opportunity example", text: quote, source: quote, answer: quote, sessionId,
-                  opportunityId: activeOpportunityId ?? undefined };
-                await commitMemory((state) => retainPendingFact(state, pending, new Date().toISOString()));
-                setMemoryProposals((items) => [...items, pending]); setJobAnswer(""); setStep(2);
-              })}>Review for Career Memory</button></div>}</section>
+            </section>
           </div>}
           {(opportunityDraft || confirmedOpportunity) && <div className="opportunity-actions">{opportunityDraft && <button type="button" className="primary-button" disabled={!opportunityDraft.company.trim() || !opportunityDraft.role.trim() || !jobAnalysis?.requirements.length || busy} onClick={() => void run(async () => {
              const description = opportunitySource === "pdf" ? `PDF: ${opportunityPdfName}` : opportunitySource === "url" ? opportunityUrlText : opportunityInput.trim();
@@ -797,9 +806,10 @@ export function JourneyApp() {
             const next = await commitMemory((state) => removeOpportunity(state, current.id));
             const previous = next.opportunities.at(-1);
             setActiveOpportunityId(previous?.id ?? null);
+            setSelectedRoundId(null); setRoundName(""); setRoundInterviewer(""); setRoundStatus("planned");
             setMemoryProposals(pendingInterviewFacts(next));
             setConfirmedOpportunity(previous ? { company: previous.company, role: previous.role, confidence: "clear" } : null);
-            setJobAnswer(""); setOpportunityDraft(null); setJobAnalysis(null); setJobAlignment(null);
+            setOpportunityDraft(null); setJobAnalysis(null); setJobAlignment(null);
             setOpportunityInput(""); setOpportunityUrl(""); setOpportunityUrlText("");
             opportunityPdfRef.current = null; setOpportunityPdfName(""); setOpportunityMethod("url");
             }, 3);
@@ -807,9 +817,15 @@ export function JourneyApp() {
           })}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5"/></svg></button></div>}</div>}
         </>}
         {step === 4 && <>
-          <div className="detail-heading"><span className="eyebrow">04 / YOUR INTERVIEW</span><h2>Bring your own experience.</h2></div>
-          <p className="detail-note">{canPractice ? `${confirmedOpportunity?.role} · ${confirmedOpportunity?.company} · ${approved.length} approved memory item${approved.length === 1 ? "" : "s"}` : "Add an approved memory and confirmed opportunity to begin."}</p>
-          <button type="button" className="primary-button practice-start" disabled={!canPractice} onClick={() => setPractice("personal")}>Start Practice</button>
+          <div className="detail-heading"><span className="eyebrow">04 / YOUR INTERVIEW</span><h2>Prepare for your interview.</h2></div>
+          {!memoryRef.current.opportunities.length ? <p className="detail-note">Save an opportunity in Step 3 to prepare for it here.</p> : <>
+            <div className="opportunity-picker" aria-label="Saved opportunities">{memoryRef.current.opportunities.map((item) => { const itemRounds = rounds.filter((round) => round.opportunityId === item.id); return <button key={item.id} type="button" className={`opportunity-picker-item${activeOpportunityId === item.id ? " selected" : ""}`} aria-pressed={activeOpportunityId === item.id} onClick={() => selectSavedOpportunity(item.id)}><strong>{item.company}</strong><span>{item.role}</span><small>{itemRounds.filter((round) => round.status === "completed").length} of {itemRounds.length} rounds completed</small></button>; })}</div>
+            {activeOpportunityId && <section className="round-setup"><h3>Interview rounds</h3><p className="detail-note">Add only the rounds you expect. You can update them later.</p>
+              <div className="round-list">{rounds.filter((round) => round.opportunityId === activeOpportunityId).map((round) => <button type="button" key={round.id} className={`round-item${selectedRoundId === round.id ? " selected" : ""}`} aria-pressed={selectedRoundId === round.id} onClick={() => { setSelectedRoundId(round.id); setRoundName(round.label); setRoundInterviewer(round.interviewer ?? ""); setRoundStatus(round.status === "completed" ? "completed" : "planned"); }}><strong>{round.label}</strong><span>{round.interviewer || "Interviewer to be confirmed"}</span><small>{round.status === "completed" ? "Completed" : "Upcoming"}</small></button>)}</div>
+              <div className="round-editor"><label className="field-label">Round name<input value={roundName} maxLength={100} placeholder="e.g. Hiring manager" onChange={(event) => setRoundName(event.target.value)}/></label><label className="field-label">Interviewer or interview type (optional)<input value={roundInterviewer} maxLength={100} onChange={(event) => setRoundInterviewer(event.target.value)}/></label><label className="field-label">Status<select value={roundStatus} onChange={(event) => setRoundStatus(event.target.value as "planned" | "completed")}><option value="planned">Upcoming</option><option value="completed">Completed</option></select></label><div className="inline-actions"><button type="button" className="secondary-button" disabled={busy || roundName.trim().length < 2} onClick={() => void run(async () => { const next = await commitMemory((state) => saveRound(state, activeOpportunityId, roundName, roundInterviewer, roundStatus, selectedRoundId ?? undefined)); setSelectedRoundId(next.rounds.at(-1)?.id ?? null); })}>{selectedRoundId ? "Save Round" : "Add Round"}</button>{selectedRoundId && <button type="button" className="text-button" onClick={() => { setSelectedRoundId(null); setRoundName(""); setRoundInterviewer(""); setRoundStatus("planned"); }}>Add another round</button>}</div></div>
+              <div className="interview-destinations"><div><h3>Practice Interview</h3><p className="detail-note">A voice conversation for this round is coming later.</p><button type="button" className="secondary-button" disabled>Voice practice unavailable</button></div><div><h3>Go Live</h3><p className="detail-note">Open the current memory-cue practice HUD for this opportunity. Meeting audio is not captured automatically.</p><button type="button" className="primary-button" disabled={!canPractice || !selectedRoundId} onClick={() => setPractice("personal")}>Open Practice HUD</button></div></div>
+            </section>}
+          </>}
         </>}
       </section>
       <footer className="page-footer"><span>VantSide</span><span>Practice only · {hasDesktopStorage() ? "Saved on this device" : "Session only"}</span></footer>

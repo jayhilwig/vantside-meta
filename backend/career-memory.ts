@@ -82,6 +82,7 @@ export const interviewRoundSchema = z.object({
   id,
   opportunityId: id,
   label: z.string().trim().min(2).max(100),
+  interviewer: z.string().trim().min(2).max(100).optional(),
   status: z.enum(["planned", "active", "completed", "cancelled"]),
   startedAt: timestamp.optional(),
   endedAt: timestamp.optional(),

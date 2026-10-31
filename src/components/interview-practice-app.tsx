@@ -15,7 +15,7 @@ const api = (process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787"
 type Status = "ready" | "opening" | "permission" | "listening" | "transcribing" | "finding" | "between" | "ending" | "ended";
 
 export function InterviewPracticeApp({ projects, opportunity, onBack }: {
-  projects: MemoryProject[]; opportunity: HudOpportunity; onBack: () => void;
+  projects: MemoryProject[]; opportunity: HudOpportunity & { roundLabel?: string; interviewer?: string }; onBack: () => void;
 }) {
   const [status, setStatus] = useState<Status>("ready");
   const [consent, setConsent] = useState(false);
@@ -200,7 +200,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
       <span className="brand-lockup"><BrandMark small/><span>VantSide</span></span><span className="session-pill">PRACTICE INTERVIEW</span></header>
     <section className="interview-v1">
       <span className="eyebrow">04 / YOUR INTERVIEW</span>
-      <h1>{opportunity.role}</h1><p className="interview-company">{opportunity.company}</p>
+      <h1>{opportunity.role}</h1><p className="interview-company">{opportunity.company}{opportunity.roundLabel ? ` · ${opportunity.roundLabel}` : ""}{opportunity.interviewer ? ` · ${opportunity.interviewer}` : ""}</p>
       <p className="interview-source">A practice partner can ask a question into your selected microphone. No meeting audio is captured.</p>
       <div className="interview-controls">
         <div className="interview-status" role="status" aria-live="polite"><span className={`interview-status-dot ${status}`}/>{({ ready: "Ready", opening: "Opening HUD", permission: "Opening microphone", listening: "Listening for a question", transcribing: "Transcribing question", finding: "Finding relevant memory", between: "Ready for the next question", ending: "Ending interview", ended: "Interview ended" } as const)[status]}</div>

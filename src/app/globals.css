@@ -254,6 +254,19 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .saved-opportunity-delete { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 4px; background: #fff; color: var(--delete-red); cursor: pointer; }
 .saved-opportunity-delete:hover { background: #fff4f3; }
 .saved-opportunity-delete svg { width: 17px; height: 17px; }
+.opportunity-picker, .round-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; max-width: 760px; }
+.opportunity-picker-item, .round-item { display: grid; gap: 4px; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--ink); text-align: left; cursor: pointer; }
+.opportunity-picker-item.selected, .round-item.selected { border-color: var(--action); background: #f4faf3; box-shadow: 0 3px 12px #1b3a1b12; }
+.opportunity-picker-item span, .round-item span { font-size: 12px; }
+.opportunity-picker-item small, .round-item small { color: var(--muted); font-size: 10px; }
+.round-setup { max-width: 760px; margin-top: 24px; }
+.round-setup h3 { margin: 0 0 8px; font-size: 16px; }
+.round-list { margin: 18px 0; }
+.round-editor { padding: 14px; border: 1px solid var(--border); border-radius: 6px; }
+.round-editor .field-label { margin: 0 0 12px; }
+.interview-destinations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 24px; }
+.interview-destinations > div { padding: 18px; border: 1px solid var(--border); border-radius: 6px; }
+.coverage-columns > div:last-child h4 { color: var(--delete-red); }
 .job-follow-up { margin-top: 18px; padding: 15px; border: 1px solid var(--border); border-radius: 6px; }
 .resume-upload { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 15px; }
 .resume-upload .detail-note { margin: 0; overflow-wrap: anywhere; }
@@ -392,6 +405,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 @keyframes dot-processing { from { opacity: .35; transform: translateY(0); } to { opacity: 1; transform: translateY(-3px); } }
 
 @media (max-width: 760px) {
+  .interview-destinations { grid-template-columns: 1fr; }
   .coverage-columns { grid-template-columns: 1fr; gap: 18px; }
   .audio-device-grid { grid-template-columns: 1fr; }
   .review-project-heading { grid-template-columns: 1fr; }
