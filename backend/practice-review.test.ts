@@ -27,6 +27,9 @@ test("practice review retains only grounded feedback and pending proposals", asy
         { text: "Improved conversion 40%", quote: "I interviewed support agents" }],
       clarity: [{ text: "Could explain navigation decision more clearly", quote: "simplified the navigation" }],
       areas: ["API platform design", "Executive management"],
+      competencies: [{ requirement: "API platform design", assessment: "Strong", explanation: "Explained onboarding work", quote: "I mapped the API onboarding flow", suggestion: "" },
+        { requirement: "Cross-functional leadership", assessment: "Not Demonstrated", explanation: "Candidate lacks leadership", quote: "", suggestion: "" },
+        { requirement: "Executive management", assessment: "Strong", explanation: "Invented", quote: "I mapped the API onboarding flow", suggestion: "" }],
       proposals: [{ title: "API onboarding", text: "Mapped API onboarding flow", source: "I mapped the API onboarding flow" },
         { title: "Revenue", text: "Increased revenue by 70%", source: "I mapped the API onboarding flow" }],
     }) } }] });
@@ -36,6 +39,8 @@ test("practice review retains only grounded feedback and pending proposals", asy
   assert.equal(result.body.topics.length, 1);
   assert.equal(result.body.strengths?.length, 1);
   assert.deepEqual(result.body.areas, ["API platform design"]);
+  assert.equal(result.body.competencies?.length, 2);
+  assert.equal(result.body.competencies?.[1].explanation, "Not discussed in this session.");
   assert.equal(result.body.proposals.length, 1);
   assert.equal("approved" in result.body, false);
 }));

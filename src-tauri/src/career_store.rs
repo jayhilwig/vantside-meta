@@ -364,7 +364,7 @@ mod tests {
             "sourceLabel":"Pasted job description","requirements":[{"id":"req-1","kind":"responsibility","text":"Design onboarding flows","sourceExcerpt":"Design onboarding flows"}],
             "alignment":{"strengths":[{"requirementId":"req-1","factId":"fact-1"}],"needsEvidence":[]},
             "preparationQuestions":["Tell me about onboarding flows you designed."]}],
-          "rounds":[{"id":"round-1","opportunityId":"job-1","label":"First round","status":"planned"}],
+          "rounds":[{"id":"round-1","opportunityId":"job-1","label":"First round","status":"planned","interviewDate":"2026-11-03","interviewerLinkedInUrl":"https://www.linkedin.com/in/example/","interviewerPdf":{"name":"profile.pdf","text":"Public profile text"}}],
           "proposals":[{"id":"proposal-1","projectId":"project-1","projectTitle":"Onboarding","kind":"role","text":"Worked with support","sourceIds":["source-2"],"originSessionId":"session-1","proposedAt":"2026-10-28T00:00:00Z"}]})
     }
 
@@ -405,6 +405,8 @@ mod tests {
             load_at(&restarted).unwrap()["state"]["rounds"][0]["opportunityId"],
             "job-1"
         );
+        assert_eq!(load_at(&restarted).unwrap()["state"]["rounds"][0]["interviewDate"], "2026-11-03");
+        assert_eq!(load_at(&restarted).unwrap()["state"]["rounds"][0]["interviewerPdf"]["text"], "Public profile text");
         assert_eq!(
             load_at(&restarted).unwrap()["state"]["opportunities"][0]["requirements"][0]["sourceExcerpt"],
             "Design onboarding flows"
