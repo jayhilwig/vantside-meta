@@ -72,6 +72,7 @@ export const jobOpportunitySchema = z.object({
   confirmedAt: timestamp,
   seniority: z.string().trim().min(2).max(80).optional(),
   sourceLabel: z.string().trim().min(1).max(2000).optional(),
+  brandLogoDataUrl: z.string().regex(/^data:image\/(?:png|x-icon|vnd\.microsoft\.icon|webp);base64,[A-Za-z0-9+/=]+$/).max(110000).optional(),
   requirements: z.array(z.object({ id, kind: z.enum(["responsibility", "required", "preferred", "domain"]), text: z.string().trim().min(5).max(220), sourceExcerpt: z.string().trim().min(5).max(300) }).strict()).max(12).optional(),
   alignment: z.object({ strengths: z.array(z.object({ requirementId: id, factId: id }).strict()).max(12), needsEvidence: z.array(id).max(12) }).strict().optional(),
   preparationQuestions: z.array(z.string().trim().min(10).max(250)).max(5).optional(),

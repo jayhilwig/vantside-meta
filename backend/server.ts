@@ -5,6 +5,7 @@ import { decideHudCue } from "./hud-decision";
 import { extractOpportunity, extractResume } from "./extraction-handler";
 import { analyzeOpportunity } from "./opportunity-handler";
 import { extractJobUrl } from "./job-url-handler";
+import { companyBrand } from "./company-brand";
 import { startInterview, continueInterview } from "./interview-handler";
 import { createLiveSession } from "./live-handler";
 import { proposeLiveMemory } from "./live-proposals";
@@ -37,7 +38,7 @@ const server = createServer(async (request, response) => {
     response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-VantSide-Session");
   }
-  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/extract-job-url", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals"]);
+  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/extract-job-url", "/company-brand", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals"]);
   if (request.method === "OPTIONS" && routes.has(request.url ?? "") && preflightOrigin(origin)) {
     response.writeHead(204); response.end(); return;
   }
@@ -95,6 +96,7 @@ const server = createServer(async (request, response) => {
     const result = request.url === "/extract-resume" ? await extractResume(body)
       : request.url === "/extract-opportunity" ? await extractOpportunity(body)
       : request.url === "/extract-job-url" ? await extractJobUrl(body)
+      : request.url === "/company-brand" ? await companyBrand(body)
       : request.url === "/analyze-opportunity" ? await analyzeOpportunity(body)
       : request.url === "/interview/start" ? await startInterview(body, fetch, controller.signal)
       : request.url === "/interview/live/session" ? await createLiveSession(body, fetch, controller.signal)

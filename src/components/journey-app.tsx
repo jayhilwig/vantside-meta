@@ -25,6 +25,10 @@ type ResumeProposal = { profile: CareerProfile; projects: MemoryProject[] };
 type MemoryProposal = PendingInterviewFact;
 type Confirmation = { title: string; description: string; actionLabel: string; onConfirm: () => void };
 
+function CompanyIcon({ company, logo }: { company: string; logo?: string }) {
+  return <span className="company-icon">{logo ? <Image src={logo} alt="" width={32} height={32} unoptimized /> : company.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</span>;
+}
+
 function ConfirmationDialog({ confirmation, onClose }: { confirmation: Confirmation | null; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -98,9 +102,9 @@ export function JourneyApp() {
   const [activeOpportunityId, setActiveOpportunityId] = useState<string | null>(null);
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [roundName, setRoundName] = useState("");
-  const [roundInterviewer, setRoundInterviewer] = useState("");
-  const [roundStatus, setRoundStatus] = useState<"planned" | "completed">("planned");
+  const [roundCustom, setRoundCustom] = useState("");
   const [rounds, setRounds] = useState<MemoryState["rounds"]>([]);
+  const [, refreshBrand] = useState(0);
   const [step, setStep] = useState<Step>(1);
   const [practice, setPractice] = useState<"personal" | "synthetic" | null>(null);
   const [resumeName, setResumeName] = useState("");
@@ -397,7 +401,7 @@ export function JourneyApp() {
     setJobAnalysis(selected.requirements ? { company: selected.company, role: selected.role, seniority: selected.seniority,
       confidence: "clear", requirements: selected.requirements } : null);
     setJobAlignment(selected.alignment ?? null);
-    setSelectedRoundId(null); setRoundName(""); setRoundInterviewer(""); setRoundStatus("planned");
+    setSelectedRoundId(null); setRoundName(""); setRoundCustom("");
   }
 
   function chooseOpportunityMethod(method: "text" | "url" | "pdf") {
@@ -439,6 +443,7 @@ export function JourneyApp() {
       if (!file) throw new Error("Choose a job description PDF to analyze.");
       const text = await readJobPdfText(file);
       if (controller.signal.aborted) return;
+      sourceText = text;
       input = { text, careerFacts };
     } else if (opportunityMethod === "url") {
       const extracted = await post<{ text: string; url: string }>("/extract-job-url", { url: opportunityUrl.trim() }, controller.signal);
@@ -796,6 +801,11 @@ export function JourneyApp() {
             const saved = next.opportunities.find((item) => item.company === opportunityDraft.company.trim() && item.role === opportunityDraft.role.trim() && item.description === description);
             if (!saved) throw new Error("Opportunity was saved but could not be selected. Reopen the app to restore it.");
             setActiveOpportunityId(saved.id); setConfirmedOpportunity(opportunityDraft); setOpportunityDraft(null);
+            void post<{ logoDataUrl?: string }>("/company-brand", { company: saved.company,
+              ...(opportunitySource === "url" ? { sourceUrl: sourceLabel } : { sourceText: opportunitySource === "pdf" ? opportunityUrlText : opportunityInput }) })
+              .then(async (brand) => { if (!brand.logoDataUrl) return; await commitMemory((state) => ({ ...state,
+                opportunities: state.opportunities.map((item) => item.id === saved.id ? { ...item, brandLogoDataUrl: brand.logoDataUrl } : item) })); refreshBrand((value) => value + 1); })
+              .catch(() => undefined);
           }, 3, "Saving opportunity…")}>Save Opportunity</button>}
           {opportunityDraft && !jobAnalysis?.requirements.length && <p className="detail-note">Keep at least one requirement from the job description before saving.</p>}
           {confirmedOpportunity && <div className="saved-opportunity"><span className="detail-note" role="status">Saved opportunity: <strong>{confirmedOpportunity.role} · {confirmedOpportunity.company}</strong></span><button type="button" className="primary-button" onClick={() => setStep(4)}>Continue to Practice</button><button type="button" className="saved-opportunity-delete" aria-label="Delete saved opportunity" title="Delete saved opportunity" onClick={() => setConfirmation({
@@ -806,7 +816,7 @@ export function JourneyApp() {
             const next = await commitMemory((state) => removeOpportunity(state, current.id));
             const previous = next.opportunities.at(-1);
             setActiveOpportunityId(previous?.id ?? null);
-            setSelectedRoundId(null); setRoundName(""); setRoundInterviewer(""); setRoundStatus("planned");
+            setSelectedRoundId(null); setRoundName(""); setRoundCustom("");
             setMemoryProposals(pendingInterviewFacts(next));
             setConfirmedOpportunity(previous ? { company: previous.company, role: previous.role, confidence: "clear" } : null);
             setOpportunityDraft(null); setJobAnalysis(null); setJobAlignment(null);
@@ -819,11 +829,11 @@ export function JourneyApp() {
         {step === 4 && <>
           <div className="detail-heading"><span className="eyebrow">04 / YOUR INTERVIEW</span><h2>Prepare for your interview.</h2></div>
           {!memoryRef.current.opportunities.length ? <p className="detail-note">Save an opportunity in Step 3 to prepare for it here.</p> : <>
-            <div className="opportunity-picker" aria-label="Saved opportunities">{memoryRef.current.opportunities.map((item) => { const itemRounds = rounds.filter((round) => round.opportunityId === item.id); return <button key={item.id} type="button" className={`opportunity-picker-item${activeOpportunityId === item.id ? " selected" : ""}`} aria-pressed={activeOpportunityId === item.id} onClick={() => selectSavedOpportunity(item.id)}><strong>{item.company}</strong><span>{item.role}</span><small>{itemRounds.filter((round) => round.status === "completed").length} of {itemRounds.length} rounds completed</small></button>; })}</div>
-            {activeOpportunityId && <section className="round-setup"><h3>Interview rounds</h3><p className="detail-note">Add only the rounds you expect. You can update them later.</p>
-              <div className="round-list">{rounds.filter((round) => round.opportunityId === activeOpportunityId).map((round) => <button type="button" key={round.id} className={`round-item${selectedRoundId === round.id ? " selected" : ""}`} aria-pressed={selectedRoundId === round.id} onClick={() => { setSelectedRoundId(round.id); setRoundName(round.label); setRoundInterviewer(round.interviewer ?? ""); setRoundStatus(round.status === "completed" ? "completed" : "planned"); }}><strong>{round.label}</strong><span>{round.interviewer || "Interviewer to be confirmed"}</span><small>{round.status === "completed" ? "Completed" : "Upcoming"}</small></button>)}</div>
-              <div className="round-editor"><label className="field-label">Round name<input value={roundName} maxLength={100} placeholder="e.g. Hiring manager" onChange={(event) => setRoundName(event.target.value)}/></label><label className="field-label">Interviewer or interview type (optional)<input value={roundInterviewer} maxLength={100} onChange={(event) => setRoundInterviewer(event.target.value)}/></label><label className="field-label">Status<select value={roundStatus} onChange={(event) => setRoundStatus(event.target.value as "planned" | "completed")}><option value="planned">Upcoming</option><option value="completed">Completed</option></select></label><div className="inline-actions"><button type="button" className="secondary-button" disabled={busy || roundName.trim().length < 2} onClick={() => void run(async () => { const next = await commitMemory((state) => saveRound(state, activeOpportunityId, roundName, roundInterviewer, roundStatus, selectedRoundId ?? undefined)); setSelectedRoundId(next.rounds.at(-1)?.id ?? null); })}>{selectedRoundId ? "Save Round" : "Add Round"}</button>{selectedRoundId && <button type="button" className="text-button" onClick={() => { setSelectedRoundId(null); setRoundName(""); setRoundInterviewer(""); setRoundStatus("planned"); }}>Add another round</button>}</div></div>
-              <div className="interview-destinations"><div><h3>Practice Interview</h3><p className="detail-note">A voice conversation for this round is coming later.</p><button type="button" className="secondary-button" disabled>Voice practice unavailable</button></div><div><h3>Go Live</h3><p className="detail-note">Open the current memory-cue practice HUD for this opportunity. Meeting audio is not captured automatically.</p><button type="button" className="primary-button" disabled={!canPractice || !selectedRoundId} onClick={() => setPractice("personal")}>Open Practice HUD</button></div></div>
+            <div className="opportunity-picker" aria-label="Saved opportunities">{memoryRef.current.opportunities.map((item) => { const itemRounds = rounds.filter((round) => round.opportunityId === item.id); return <button key={item.id} type="button" className={`opportunity-picker-item${activeOpportunityId === item.id ? " selected" : ""}`} aria-pressed={activeOpportunityId === item.id} onClick={() => selectSavedOpportunity(item.id)}><CompanyIcon company={item.company} logo={item.brandLogoDataUrl}/><strong>{item.company}</strong><span>{item.role}</span><small>{itemRounds.filter((round) => round.status === "completed").length} of {itemRounds.length} rounds completed</small></button>; })}</div>
+            {activeOpportunityId && <section className="round-setup"><div className="selected-opportunity-brand"><CompanyIcon company={confirmedOpportunity?.company ?? ""} logo={opportunityById(memoryRef.current, activeOpportunityId)?.brandLogoDataUrl}/><strong>{confirmedOpportunity?.company} · {confirmedOpportunity?.role}</strong></div><h3>Interview rounds</h3>
+              <div className="round-list">{rounds.filter((round) => round.opportunityId === activeOpportunityId).map((round) => <button type="button" key={round.id} className={`round-item${selectedRoundId === round.id ? " selected" : ""}`} aria-pressed={selectedRoundId === round.id} onClick={() => { setSelectedRoundId(round.id); setRoundName(["Recruiter / HR", "Hiring Manager", "Team Member", "Panel Interview", "Executive / Leadership", "Portfolio / Technical Interview"].includes(round.label) ? round.label : "Other"); setRoundCustom(round.label); }}><strong>{round.label}</strong><span>{round.interviewer || ""}</span><small>{round.status === "completed" ? "Completed" : round.status === "cancelled" ? "Cancelled" : "Upcoming"}</small></button>)}</div>
+              <div className="round-editor"><label className="field-label">Who are you interviewing with?<select value={roundName} onChange={(event) => { if (event.target.value === "Other" && roundName !== "Other") setRoundCustom(""); setRoundName(event.target.value); }}><option value="">Choose an interview round</option>{["Recruiter / HR", "Hiring Manager", "Team Member", "Panel Interview", "Executive / Leadership", "Portfolio / Technical Interview", "Other"].map((label) => <option key={label}>{label}</option>)}</select></label>{roundName === "Other" && <label className="field-label">Describe the interview<input value={roundCustom} maxLength={100} onChange={(event) => setRoundCustom(event.target.value)}/></label>}<div className="inline-actions"><button type="button" className="secondary-button" disabled={busy || !roundName || (roundName === "Other" && roundCustom.trim().length < 2)} onClick={() => void run(async () => { const existing = rounds.find((item) => item.id === selectedRoundId && item.opportunityId === activeOpportunityId); const next = await commitMemory((state) => saveRound(state, activeOpportunityId, roundName === "Other" ? roundCustom : roundName, existing?.interviewer ?? "", existing?.status ?? "planned", selectedRoundId ?? undefined)); setSelectedRoundId(next.rounds.at(-1)?.id ?? null); })}>{selectedRoundId ? "Save Round" : "Add Round"}</button>{selectedRoundId && <button type="button" className="text-button" onClick={() => { setSelectedRoundId(null); setRoundName(""); setRoundCustom(""); }}>New round</button>}</div></div>
+              <div className="interview-actions"><button type="button" className="secondary-button" disabled title="Conversational practice is not available yet">Practice Interview</button><button type="button" className="go-live-button" disabled={!canPractice || !selectedRoundId} onClick={() => setPractice("personal")}>Go Live</button></div>
             </section>}
           </>}
         </>}

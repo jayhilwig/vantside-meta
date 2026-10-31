@@ -48,7 +48,7 @@ export function extractJobPage(html: string): string {
   return text.slice(0, 15_000);
 }
 
-type Page = { status: number; contentType: string; body: string; location?: string };
+export type Page = { status: number; contentType: string; body: string; location?: string; bytes?: Buffer };
 
 export function pinnedJobLookup(address: string, family: 4 | 6): LookupFunction {
   return (_host, options, callback) => {
@@ -65,14 +65,24 @@ async function requestPage(url: URL, address: string, family: 4 | 6): Promise<Pa
     }, (response) => {
       const chunks: Buffer[] = []; let bytes = 0;
       response.on("data", (chunk: Buffer) => { bytes += chunk.length; if (bytes > maxBytes) { connection.destroy(new Error("The job page is too large to import.")); return; } chunks.push(chunk); });
-      response.on("end", () => resolve({ status: response.statusCode ?? 0, contentType: String(response.headers["content-type"] ?? ""),
-        body: Buffer.concat(chunks).toString("utf8"), location: response.headers.location }));
+      response.on("end", () => { const bytes = Buffer.concat(chunks); resolve({ status: response.statusCode ?? 0, contentType: String(response.headers["content-type"] ?? ""),
+        body: bytes.toString("utf8"), bytes, location: response.headers.location }); });
       response.on("error", reject);
     });
     connection.on("timeout", () => connection.destroy(new Error("The job page took too long to load.")));
     connection.on("error", reject);
     connection.end();
   });
+}
+
+export async function fetchPublicPage(value: string): Promise<Page> {
+  const url = parseJobUrl(value);
+  const addresses = await lookup(url.hostname, { all: true });
+  if (!addresses.length || addresses.some((item) => !isPublicAddress(item.address))) throw new Error("Unsafe public page destination.");
+  const selected = addresses[0];
+  const page = await requestPage(url, selected.address, selected.family as 4 | 6);
+  if (page.status !== 200) throw new Error("Public page unavailable.");
+  return page;
 }
 
 function publicBoardApi(url: URL): { url: URL; kind: "greenhouse" | "lever" | "ashby" } | null {
