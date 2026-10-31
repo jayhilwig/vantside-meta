@@ -25,3 +25,13 @@ test("missing or invalid employer logo falls back without blocking opportunity s
   const failure = await companyBrand({ company: "Splice", sourceUrl: "https://job-boards.greenhouse.io/splice/jobs/123" }, async () => { throw new Error("offline"); });
   assert.deepEqual(failure, { status: 200, body: {} });
 });
+
+test("pasted descriptions can use a company link while descriptions without one retain initials", async () => {
+  const read = async (url: string) => url === "https://splice.com/"
+    ? { status: 200, contentType: "text/html", body: '<link rel="icon" href="/favicon.png">' }
+    : { status: 200, contentType: "image/png", body: "", bytes: Buffer.from([137, 80, 78, 71]) };
+  const linked = await companyBrand({ company: "Splice", sourceText: "Apply at https://splice.com/careers for this role." }, read);
+  assert.match(linked.body.logoDataUrl ?? "", /^data:image\/png;base64,/);
+  const unlinked = await companyBrand({ company: "Splice", sourceText: "No company website listed." }, read);
+  assert.deepEqual(unlinked, { status: 200, body: {} });
+});
