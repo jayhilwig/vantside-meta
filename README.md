@@ -19,9 +19,8 @@ Career Memory is cumulative across opportunities. New facts require approval; jo
 
 VantSide turns reviewed professional experience into a local Career Memory, connects it to a specific opportunity, and surfaces relevant reminders through a movable HUD.
 
-![VantSide architecture and Career Memory workflow](docs/architecture-diagram.svg)
+![VantSide architecture and Career Memory workflow](docs/vantside_career_memory_workflow.png)
 
-[View the full-size architecture diagram](docs/architecture-diagram.svg)
 
 Only approved Career Memory facts are eligible for HUD cues. Baseten is an optional, explicitly selected analysis provider—not an automatic fallback.
 
