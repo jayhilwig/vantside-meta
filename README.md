@@ -17,11 +17,13 @@ Career Memory is cumulative across opportunities. New facts require approval; jo
 
 ## Architecture
 
-![VantSide architecture showing Meta Muse Spark, optional Baseten, OpenAI GPT-Live, TypeSafe AI Jev, local SQLite and the movable HUD](docs/architecture-diagram.svg)
+VantSide turns reviewed professional experience into a local Career Memory, connects it to a specific opportunity, and surfaces relevant reminders through a movable HUD.
 
-[Open the architecture diagram as a standalone SVG](docs/architecture-diagram.svg)
+![VantSide architecture and Career Memory workflow](docs/architecture-diagram.svg)
 
-The architecture graphic is a static SVG rather than an interactive Mermaid diagram, so it displays consistently on GitHub and does not depend on GitHub's zoom or fullscreen controls. The provider names are shown as labels rather than unverified logos.
+[View the full-size architecture diagram](docs/architecture-diagram.svg)
+
+Only approved Career Memory facts are eligible for HUD cues. Baseten is an optional, explicitly selected analysis provider—not an automatic fallback.
 
 ## Technology
 
