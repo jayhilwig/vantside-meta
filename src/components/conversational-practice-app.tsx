@@ -8,8 +8,10 @@ import type { PendingInterviewFact } from "@/lib/journey-memory";
 import { questionToHud, type HudFact, type HudOpportunity } from "@/lib/interview-hud-pipeline";
 import { LatestQuestion } from "@/lib/latest-question";
 import { HudFacts } from "./hud-facts";
+import { HudMinimizeHint } from "./hud-minimize-hint";
 import type { PracticeReview } from "@/lib/practice-review-schema";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
+import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
 import { HudWindowController, tauriHudPort } from "@/lib/hud-window";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -43,7 +45,8 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   const [deviceMessageFor, setDeviceMessageFor] = useState<"microphone" | "speaker">("microphone");
   const [deviceOutcome, setDeviceOutcome] = useState<"pass" | "quiet" | null>(null);
   const [testing, setTesting] = useState(false);
-  const testAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [speakerTesting, setSpeakerTesting] = useState(false);
+  const testAudioRef = useRef<SpeakerTest | null>(null);
   const testMicRef = useRef<MediaStream | null>(null);
   const testRunRef = useRef(0);
   const microphoneListAuthorizedRef = useRef(false);
@@ -72,7 +75,7 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
     }
     void navigator.mediaDevices?.enumerateDevices?.().then((items) => { setMicrophones(items.filter((item) => item.kind === "audioinput")); setSpeakers(items.filter((item) => item.kind === "audiooutput")); }).catch(() => undefined);
     return () => { disposed = true; testRun.current++; testMicRef.current?.getTracks().forEach((track) => track.stop());
-      unlistenReady?.(); unlistenHidden?.(); cueRun.cancel(); requestRef.current?.abort(); liveRef.current?.close(); testAudioRef.current?.pause(); testAudioRef.current = null; void hud?.close(); };
+      unlistenReady?.(); unlistenHidden?.(); cueRun.cancel(); requestRef.current?.abort(); liveRef.current?.close(); testAudioRef.current?.stop(); testAudioRef.current = null; void hud?.close(); };
   }, []);
 
   async function revealMicrophones() {
@@ -83,14 +86,18 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
 
   function cueForQuestion(question: string) {
     setCues([]);
-    void hudRef.current?.publish([]);
+    void hudRef.current?.publish([]).catch(() => console.warn("Practice HUD", { stage: "clear", delivery: "failed" }));
     void cueRunRef.current.run((signal) => questionToHud({ question, projects, opportunity: { company: context.company, role: context.role,
       requirements: context.hudRequirements, preparationQuestions: context.preparationQuestions },
       recentFactIds: recentCueIds.current, signal }), (result) => {
       setCues(result.cues);
-      void hudRef.current?.publish(result.cues);
-      recentCueIds.current = [...recentCueIds.current, ...result.cues.map((cue) => cue.factId)].slice(-10);
-    }, () => setCues([]));
+      console.info("Practice HUD", { stage: "cue", reason: result.reason, selectedFacts: result.cues.length });
+      void hudRef.current?.publish(result.cues).then(() => {
+        if (isTauri()) console.info("Practice HUD", { stage: "delivery", result: "emitted" });
+      }).catch(() => console.warn("Practice HUD", { stage: "delivery", result: "failed" }));
+      // Suppress immediate repeats; an unrelated no-cue turn releases the prior fact.
+      recentCueIds.current = result.cues.map((cue) => cue.factId);
+    }, () => { setCues([]); console.warn("Practice HUD", { stage: "cue", reason: "unavailable" }); });
   }
 
   async function testMicrophone() {
@@ -121,20 +128,17 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
 
   async function testSpeaker() {
     if (testing) return;
-    setTesting(true); setDeviceMessageFor("speaker"); setDeviceOutcome(null); setDeviceMessage("");
-    const audio = new Audio("/speaker-test.mp3"); testAudioRef.current = audio;
+    setTesting(true); setSpeakerTesting(true); setDeviceMessageFor("speaker"); setDeviceOutcome(null); setDeviceMessage("Playing speaker test");
+    const test = startSpeakerTest(speakerId); testAudioRef.current = test;
     try {
-      if (speakerId) { if (typeof audio.setSinkId !== "function") throw new Error("Speaker selection is unavailable. Use the system output."); await audio.setSinkId(speakerId); }
-      const finished = new Promise<"ended" | "cancelled">((resolve, reject) => {
-        audio.onended = () => resolve("ended"); audio.onpause = () => resolve("cancelled");
-        audio.onerror = () => reject(new Error("Speaker test could not play."));
-      });
-      await audio.play();
-      if (testAudioRef.current !== audio) return;
-      setDeviceMessage("Playing speaker test");
-      if (speakerPlaybackCompleted(await finished) && testAudioRef.current === audio) { setDeviceOutcome("pass"); setDeviceMessage("Playback completed"); }
-    } catch (cause) { if (testAudioRef.current === audio) setDeviceMessage(cause instanceof Error ? cause.message : "Speaker test failed."); }
-    finally { audio.pause(); audio.removeAttribute("src"); if (testAudioRef.current === audio) { testAudioRef.current = null; setTesting(false); } }
+      if (speakerPlaybackCompleted(await test.finished) && testAudioRef.current === test) { setDeviceOutcome("pass"); setDeviceMessage("Playback completed"); }
+    } catch (cause) { if (testAudioRef.current === test) setDeviceMessage(cause instanceof Error ? cause.message : "Speaker test failed."); }
+    finally { if (testAudioRef.current === test) { testAudioRef.current = null; setSpeakerTesting(false); setTesting(false); } }
+  }
+
+  function stopSpeakerTest() {
+    testAudioRef.current?.stop(); testAudioRef.current = null;
+    setSpeakerTesting(false); setTesting(false); setDeviceMessage(""); setDeviceOutcome(null);
   }
 
   async function toggleHud() {
@@ -180,9 +184,13 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
 
   async function prepareReview() {
     const controller = new AbortController(); requestRef.current = controller; setStatus("reviewing"); setError("");
-    try { const result = await post<Review>("/interview/practice/review", { transcript: transcriptRef.current, role: context.role,
-      round: context.round, requirements: context.requirements }, controller.signal);
-      if (!controller.signal.aborted) { setReview(result); await onSaveReview(result); setStatus("ended"); transcriptRef.current = ""; }
+    try {
+      const result = await post<Review>("/interview/practice/review", { transcript: transcriptRef.current, role: context.role,
+        round: context.round, requirements: context.requirements }, controller.signal);
+      if (controller.signal.aborted) return;
+      try { await onSaveReview(result); }
+      catch { console.warn("Practice review", { stage: "persistence" }); throw new Error("Review could not be saved. Retry review; your captured answer is still available in this session."); }
+      setReview(result); setStatus("ended"); transcriptRef.current = "";
     } catch (cause) { if (!controller.signal.aborted) { setStatus("ended"); setError(cause instanceof Error ? cause.message : "Review unavailable. Try again."); } }
     finally { if (requestRef.current === controller) requestRef.current = null; }
   }
@@ -209,9 +217,10 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   return <main className="app-shell"><div className="page-wrap practice-conversation"><button type="button" className="text-button" onClick={() => { cueRunRef.current.cancel(); requestRef.current?.abort(); liveRef.current?.close(); void hudRef.current?.close(); onBack(); }}>← Back to rounds</button>
     <h1>Practice Interview</h1><p>{context.role} · {context.company} · {context.round}</p>
     <div className="live-status" role="status" aria-live="polite"><span className={`live-status-dot ${status}`} aria-hidden="true"/><span>Interview status</span><strong>{({ ready: "Ready", connecting: "Connecting", listening: "Listening", "user-speaking": "You’re speaking", speaking: "Interviewer speaking", paused: "Paused", ended: "Ended", error: "Error", reviewing: "Preparing review" } as const)[status]}</strong></div>
-    {!running && status !== "reviewing" && <><details className="audio-devices" open><summary>Audio setup</summary><div className="audio-device-grid"><section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void navigator.mediaDevices?.enumerateDevices?.().then((items) => setMicrophones(items.filter((item) => item.kind === "audioinput"))).catch(() => undefined)} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((item, index) => <option key={item.deviceId} value={item.deviceId}>{item.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={testing} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={level} aria-label="Microphone level"/></div>{deviceMessageFor === "microphone" && deviceMessage && <span className="device-status" role="status"><span className={deviceOutcome === "pass" ? "test-check" : deviceOutcome === "quiet" ? "test-fail" : ""} aria-hidden="true">{deviceOutcome === "pass" ? "✓" : deviceOutcome === "quiet" ? "×" : ""}</span>{deviceMessage}</span>}</section><section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && speakers.length ? <select value={speakerId} onChange={(event) => setSpeakerId(event.target.value)}><option value="">{speakers.find((item) => item.deviceId === "default")?.label || "System default"}</option>{speakers.filter((item) => item.deviceId !== "default").map((item, index) => <option key={item.deviceId} value={item.deviceId}>{item.label || `Speaker ${index + 1}`}</option>)}</select> : <span className="device-default">System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={testing} onClick={() => void testSpeaker()}>Test speaker</button></div>{deviceMessageFor === "speaker" && deviceMessage && <span className="device-status" role="status"><span className={deviceOutcome === "pass" ? "test-check" : ""} aria-hidden="true">{deviceOutcome === "pass" ? "✓" : ""}</span>{deviceMessage}</span>}</section></div></details><label className="practice-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)}/> I confirm this is consensual practice and recording and AI use are allowed.</label><button type="button" className="primary-button" disabled={!consent || testing || pending.length > 0} onClick={() => void start()}>{review ? "Continue Interview" : "Start Interview"}</button>{review && <p className="detail-note">A completed new segment replaces this round’s saved review.</p>}{pending.length > 0 && <p className="detail-note">Review proposed facts before starting another interview.</p>}</>}
+    {!running && status !== "reviewing" && <><details className="audio-devices" open><summary>Audio setup</summary><div className="audio-device-grid"><section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void navigator.mediaDevices?.enumerateDevices?.().then((items) => setMicrophones(items.filter((item) => item.kind === "audioinput"))).catch(() => undefined)} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((item, index) => <option key={item.deviceId} value={item.deviceId}>{item.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={testing} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={level} aria-label="Microphone level"/></div>{deviceMessageFor === "microphone" && deviceMessage && <span className="device-status" role="status"><span className={deviceOutcome === "pass" ? "test-check" : deviceOutcome === "quiet" ? "test-fail" : ""} aria-hidden="true">{deviceOutcome === "pass" ? "✓" : deviceOutcome === "quiet" ? "×" : ""}</span>{deviceMessage}</span>}</section><section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && speakers.length ? <select value={speakerId} onChange={(event) => setSpeakerId(event.target.value)}><option value="">{speakers.find((item) => item.deviceId === "default")?.label || "System default"}</option>{speakers.filter((item) => item.deviceId !== "default").map((item, index) => <option key={item.deviceId} value={item.deviceId}>{item.label || `Speaker ${index + 1}`}</option>)}</select> : <span className="device-default">System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={testing && !speakerTesting} onClick={() => { if (speakerTesting) stopSpeakerTest(); else void testSpeaker(); }}>{speakerTesting ? "Stop" : "Test speaker"}</button></div>{deviceMessageFor === "speaker" && deviceMessage && <span className="device-status" role="status"><span className={deviceOutcome === "pass" ? "test-check" : ""} aria-hidden="true">{deviceOutcome === "pass" ? "✓" : ""}</span>{deviceMessage}</span>}</section></div></details><label className="practice-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)}/> I confirm this is consensual practice and recording and AI use are allowed.</label><button type="button" className="primary-button" disabled={!consent || testing || pending.length > 0} onClick={() => void start()}>{review ? "Continue Interview" : "Start Interview"}</button>{review && <p className="detail-note">A completed new segment replaces this round’s saved review.</p>}{pending.length > 0 && <p className="detail-note">Review proposed facts before starting another interview.</p>}</>}
     {running && <div className="inline-actions"><meter min="0" max="100" value={level} aria-label="Microphone level"/>{status === "paused" ? <button type="button" className="secondary-button" onClick={() => liveRef.current?.resume()}>Resume</button> : status !== "connecting" && <button type="button" className="secondary-button" onClick={() => liveRef.current?.pause()}>Pause</button>}<button type="button" className="secondary-button" onClick={() => void end()}>End Interview</button></div>}
     {running && status !== "connecting" && isTauri() && <button type="button" className="text-button" onClick={() => void toggleHud()}>{hudShown ? "Hide HUD" : "Show HUD"}</button>}
+    <HudMinimizeHint visible={running && hudShown}/>
     {running && !isTauri() && <section className="practice-hud" aria-label="Practice Career Memory HUD"><span className="eyebrow">PRACTICE HUD</span><div className="hud-surface"><HudFacts cues={cues}/></div></section>}
     {error && <p className="step-error" role="alert">{error}{transcriptRef.current.length >= 40 && <button type="button" className="text-button" onClick={() => void prepareReview()}>Retry review</button>}</p>}
     {review && <section className="practice-review"><h2>Practice review</h2>

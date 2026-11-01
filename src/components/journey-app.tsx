@@ -8,6 +8,7 @@ import { ConversationalPracticeApp } from "./conversational-practice-app";
 import { startLiveInterview, type LiveInterview, type LiveStatus } from "@/lib/live-interview";
 import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, interviewEncouragement, interviewTime } from "@/lib/interview-timing";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
+import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
 import { localApiHeaders } from "@/lib/local-api-auth";
 import { readJobPdfText } from "@/lib/job-pdf-text";
 import { deleteRound, savePracticeReview, saveRound } from "@/lib/interview-rounds";
@@ -173,7 +174,7 @@ export function JourneyApp() {
   const [speakerStatus, setSpeakerStatus] = useState("");
   const [speakerOutcome, setSpeakerOutcome] = useState(false);
   const [speakerTesting, setSpeakerTesting] = useState(false);
-  const speakerTestRef = useRef<{ audio: HTMLAudioElement; cancel: () => void } | null>(null);
+  const speakerTestRef = useRef<SpeakerTest | null>(null);
   const hasMemory = approved.some((project) => project.title.trim() && project.facts.some((fact) => fact.text.trim() && fact.source.trim()));
   const canPractice = hasMemory && !!confirmedOpportunity;
 
@@ -619,11 +620,7 @@ export function JourneyApp() {
     const test = speakerTestRef.current;
     if (!test) return;
     speakerTestRef.current = null;
-    test.audio.pause();
-    test.audio.removeAttribute("src");
-    test.audio.onended = null;
-    test.audio.onerror = null;
-    test.cancel();
+    test.stop();
   }
 
   useEffect(() => () => { stopSpeakerTest(); setSpeakerTesting(false); setSpeakerStatus(""); }, [step]);
@@ -671,34 +668,19 @@ export function JourneyApp() {
   async function testSpeaker() {
     if (speakerTestRef.current) return;
     setSpeakerStatus(""); setSpeakerOutcome(false);
-    const audio = new Audio("/speaker-test.mp3");
-    let settle = () => {};
-    const finished = new Promise<"ended" | "cancelled">((resolve, reject) => {
-      settle = () => resolve("cancelled");
-      audio.onended = () => resolve("ended");
-      audio.onerror = () => reject(new Error("Speaker test audio could not play."));
-    });
-    speakerTestRef.current = { audio, cancel: settle };
+    const test = startSpeakerTest(outputId);
+    speakerTestRef.current = test;
     setSpeakerTesting(true);
     try {
-      if (outputId) {
-        if (typeof audio.setSinkId !== "function") throw new Error("Output selection is unavailable in this desktop WebView. Use the Windows default output.");
-        await audio.setSinkId(outputId);
-      }
-      if (speakerTestRef.current?.audio !== audio) return;
-      await audio.play();
-      if (speakerTestRef.current?.audio !== audio) return;
       setSpeakerStatus("Playing speaker test");
-      if (speakerPlaybackCompleted(await finished) && speakerTestRef.current?.audio === audio) { setSpeakerStatus("Playback completed"); setSpeakerOutcome(true); }
+      if (speakerPlaybackCompleted(await test.finished) && speakerTestRef.current === test) { setSpeakerStatus("Playback completed"); setSpeakerOutcome(true); }
     } catch (cause) {
-      if (speakerTestRef.current?.audio === audio) setSpeakerStatus(cause instanceof Error ? cause.message : "Speaker test unavailable.");
+      if (speakerTestRef.current === test) setSpeakerStatus(cause instanceof Error ? cause.message : "Speaker test unavailable.");
     } finally {
-      if (speakerTestRef.current?.audio === audio) {
+      if (speakerTestRef.current === test) {
         speakerTestRef.current = null;
         setSpeakerTesting(false);
       }
-      audio.pause(); audio.removeAttribute("src");
-      audio.onended = null; audio.onerror = null;
     }
   }
 
@@ -844,7 +826,7 @@ export function JourneyApp() {
           <div className="detail-heading"><span className="eyebrow">02 / LET’S TALK</span><h2 ref={stepTwoHeadingRef} tabIndex={-1}>Tell the story behind the work.</h2></div>
           <details className="audio-devices" open><summary>Audio setup</summary><div className="audio-device-grid">
              <section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void refreshDevices()} onChange={(event) => { setMicrophoneId(event.target.value); setMicrophoneOutcome(null); setMicrophoneStatus(""); }}><option value="">System default</option>{microphones.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={Math.max(microphoneLevel, liveLevel)} aria-label="Microphone level" /></div>{microphoneStatus && <span className="device-status" role="status"><span className={microphoneOutcome === "pass" ? "test-check" : microphoneOutcome === "quiet" ? "test-fail" : ""} aria-hidden="true">{microphoneOutcome === "pass" ? "✓" : microphoneOutcome === "quiet" ? "×" : ""}</span>{microphoneStatus}</span>}</section>
-             <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => { setOutputId(event.target.value); setSpeakerOutcome(false); setSpeakerStatus(""); }}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={speakerTesting} onClick={() => void testSpeaker()}>Test speaker</button></div>{speakerStatus && <span className="device-status" role="status">{speakerOutcome && <span className="test-check" aria-hidden="true">✓</span>}{speakerStatus}</span>}</section>
+             <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && outputs.length > 0 ? <select value={outputId} onChange={(event) => { setOutputId(event.target.value); setSpeakerOutcome(false); setSpeakerStatus(""); }}><option value="">{outputName}</option>{outputs.filter((device) => device.deviceId !== "default").map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label || "Audio output"}</option>)}</select> : <span className="device-default">{outputName} · System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" onClick={() => { if (speakerTesting) { stopSpeakerTest(); setSpeakerTesting(false); setSpeakerStatus(""); setSpeakerOutcome(false); } else void testSpeaker(); }}>{speakerTesting ? "Stop" : "Test speaker"}</button></div>{speakerStatus && <span className="device-status" role="status">{speakerOutcome && <span className="test-check" aria-hidden="true">✓</span>}{speakerStatus}</span>}</section>
           </div></details>
           <span className="sr-only" id="interview-consent-note">Practice interview. Voice input is processed by external AI services. Start only with everyone&apos;s consent and where recording and AI use are allowed.</span>
           {interviewError && <p className="step-error" role="alert">{interviewError}</p>}

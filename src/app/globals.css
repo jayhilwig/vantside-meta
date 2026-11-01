@@ -278,10 +278,14 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .company-icon img { width: 30px; height: 30px; object-fit: contain; }
 .selected-opportunity-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
 .interview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 24px; }
-.go-live-button { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 52px; padding: 8px 18px; border: 1px solid #161c17; border-radius: 4px; background: #161c17; color: white; cursor: pointer; font: inherit; font-size: 27px; font-weight: 800; line-height: 1; }
-.go-live-button:hover:not(:disabled) { background: #2a352c; }
+.interview-actions .secondary-button { min-height: 52px; }
+.go-live-button { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 52px; padding: 8px 18px; border: 1px solid var(--action); border-radius: 4px; background: var(--action); color: white; cursor: pointer; font: inherit; font-size: 27px; font-weight: 600; line-height: 1; }
+.go-live-button:hover:not(:disabled) { background: #078e4b; }
 .go-live-button:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
-.go-live-play { display: inline-grid; width: 24px; height: 24px; place-items: center; border: 1.5px solid var(--delete-red); border-radius: 50%; color: var(--delete-red); font-size: 11px; line-height: 1; padding-left: 2px; }
+.go-live-play { display: inline-grid; width: 24px; height: 24px; place-items: center; border: 1.5px solid white; border-radius: 50%; color: white; font-size: 11px; line-height: 1; padding-left: 2px; }
+.hud-minimize-hint { display: inline-flex; align-items: center; gap: 9px; max-width: 100%; margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.hud-minimize-hint button { flex: none; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; }
+.hud-minimize-hint button:hover, .hud-minimize-hint button:focus-visible { color: var(--ink); }
 .round-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: end; }
 .round-fields .field-label { margin: 0 0 12px; }
 .round-reference { margin: 0 0 18px; font-size: 12px; }

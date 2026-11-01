@@ -47,3 +47,15 @@ test("Jev rejects casual conversation and fails closed on malformed or unavailab
     assert.equal(timeout.body.show, false);
   } finally { if (previous === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = previous; }
 });
+
+test("recent cues do not hide a fourth relevant approved fact", async () => {
+  const previous = process.env.TYPESAFE_API_KEY; process.env.TYPESAFE_API_KEY = "mock-secret";
+  try {
+    const many = { question: "How did launch research shape your decisions?", recentFactIds: ["a", "b", "c"], projects: [{
+      projectId: "launch", title: "Product launch", facts: ["a", "b", "c", "d"].map((id) => ({
+        id, text: `Led launch research decision ${id}`, source: `Led launch research decision ${id}` })) }] };
+    const result = await decideHudCue(many, async () => Response.json({ answers: { show_cue: { type: "noul", noul: 0.9 } } }));
+    assert.equal(result.body.show, true);
+    assert.deepEqual(result.body.cues.map((cue) => cue.factId), ["d"]);
+  } finally { if (previous === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = previous; }
+});

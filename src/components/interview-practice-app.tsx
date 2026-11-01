@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { BrandMark } from "./practice-app";
+import { HudMinimizeHint } from "./hud-minimize-hint";
 import { startAnswerRecording, type AnswerRecorder } from "@/lib/record-answer";
 import { questionToHud, type HudFact, type HudOpportunity } from "@/lib/interview-hud-pipeline";
 import { HudWindowController, tauriHudPort } from "@/lib/hud-window";
@@ -216,6 +217,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
             <button type="button" className="text-button" disabled={status === "ending" || status === "opening"} onClick={() => void toggleHud()}>{hudShown ? "Hide HUD" : "Show HUD"}</button>
           </div></>}
       </div>
+      <HudMinimizeHint visible={running && hudShown}/>
       {error && <p className="step-error" role="alert">{error}</p>}
       {running && <><p className="interview-guidance">{status === "listening" ? "Mic on · Ask a question, then choose Finish Question." : status === "between" ? "Mic off · Answer naturally, then continue with another question." : status === "opening" || status === "permission" ? "Mic permission is requested only when spoken questions begin." : status === "ending" ? "Mic off · Closing the HUD." : "Mic off · Processing the completed question."}</p>
         <details className="interview-text-fallback" open={inputMode === "text" ? true : undefined}><summary>{inputMode === "text" ? "Type a practice question" : "Type a question instead"}</summary><form onSubmit={submitTyped}><label className="field-label">Practice question<input value={typedQuestion} maxLength={500} disabled={status !== "between"} onChange={(event) => setTypedQuestion(event.target.value)}/></label><button type="submit" className="secondary-button" disabled={typedQuestion.trim().length < 4 || status !== "between"}>Use question</button></form></details></>}

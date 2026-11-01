@@ -86,7 +86,11 @@ test("practice transcript and remote close release the microphone and preserve i
     channel.onmessage?.({ data: JSON.stringify({ type: "session.output_transcript.delta", delta: "design decisions?" }) });
     await new Promise((resolve) => setTimeout(resolve, 950));
     assert.deepEqual(questions, ["Tell me about your API platform design decisions?"]);
-    assert.equal(live.userSpeech(), "I designed an API platform.");
+    channel.onmessage?.({ data: JSON.stringify({ type: "session.input_transcript.delta", delta: "How did you align the teams?" }) });
+    channel.onmessage?.({ data: JSON.stringify({ type: "session.output_transcript.delta", delta: "How did you align the teams on that decision" }) });
+    await new Promise((resolve) => setTimeout(resolve, 950));
+    assert.deepEqual(questions, ["Tell me about your API platform design decisions?", "How did you align the teams on that decision"]);
+    assert.equal(live.userSpeech(), "I designed an API platform.How did you align the teams?");
     channel.onmessage?.({ data: JSON.stringify({ type: "session.closed" }) });
     live.close();
     assert.equal(stopped, 1); assert.equal(peerClosed, 1); assert.equal(channelClosed, 1);

@@ -47,10 +47,26 @@ test("practice review retains only grounded feedback and pending proposals", asy
 
 test("practice review rejects sparse evidence, malformed responses, and service failures", async () => withMockMeta(async () => {
   assert.equal((await reviewPractice({ ...request, transcript: "Short" })).status, 400);
-  const malformed = await reviewPractice(request, async () => Response.json({ choices: [{ message: { content: '{"topics":[]}' } }] }));
+  const malformed = await reviewPractice(request, async () => Response.json({ choices: [{ message: { content: '{"topics":[{"text":"Invented claim","quote":null}]}' } }] }));
   assert.equal(malformed.status, 502);
   assert.match(malformed.body.error ?? "", /validated/);
   const unavailable = await reviewPractice(request, async () => new Response(null, { status: 503 }));
   assert.equal(unavailable.status, 502);
   assert.match(unavailable.body.error ?? "", /unavailable/);
+}));
+
+test("omitted empty review sections do not discard a grounded Meta response", async () => withMockMeta(async () => {
+  const response: typeof fetch = async () => Response.json({ choices: [{ message: { content: JSON.stringify({
+    topics: [{ text: "Mapped API onboarding", quote: "I mapped the API onboarding flow", extraMetadata: "ignored" }],
+    proposals: [{ title: "API onboarding", text: "Mapped the API onboarding flow", source: "I mapped the API onboarding flow" }],
+  }) } }] });
+  const result = await reviewPractice(request, response);
+  const retry = await reviewPractice(request, response);
+  assert.equal(result.status, 200);
+  assert.deepEqual(retry, result);
+  if (!("topics" in result.body)) throw new Error("Expected review data.");
+  assert.equal(result.body.topics?.length, 1);
+  assert.equal(result.body.proposals?.length, 1);
+  assert.deepEqual(result.body.competencies, []);
+  assert.deepEqual(result.body.areas, []);
 }));

@@ -26,7 +26,7 @@ function terms(value: string): Set<string> {
 
 const restricted = /\b(write|solve|complete|implement)\b.{0,35}\b(code|algorithm|assessment|test)\b|\b(diagnose|treat)\b.{0,35}\b(patient|clinical case)\b|\b(answer|solve)\b.{0,35}\b(legal|clinical|licensing)\b.{0,25}\b(question|exam|assessment)\b/i;
 
-export function retrieveApprovedMemory(input: RetrievalInput): RetrievedCue[] {
+export function retrieveApprovedMemory(input: RetrievalInput, limit = 3): RetrievedCue[] {
   const checked = retrievalInputSchema.parse(input);
   if (restricted.test(checked.question)) return [];
   const questionTerms = terms(checked.question);
@@ -48,7 +48,7 @@ export function retrieveApprovedMemory(input: RetrievalInput): RetrievedCue[] {
       phrase: fact.text.length <= 96 ? fact.text : `${fact.text.slice(0, 93).replace(/\s+\S*$/, "")}…`,
       factText: fact.text, source: fact.source, score };
   })).filter((item) => item.score >= 3 && item.source.trim().length >= 3);
-  return candidates.sort((a, b) => b.score - a.score || a.projectId.localeCompare(b.projectId) || a.factId.localeCompare(b.factId)).slice(0, 3);
+  return candidates.sort((a, b) => b.score - a.score || a.projectId.localeCompare(b.projectId) || a.factId.localeCompare(b.factId)).slice(0, limit);
 }
 
 export function retrieveCues(body: unknown) {

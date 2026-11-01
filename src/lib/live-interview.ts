@@ -1,3 +1,5 @@
+import { detectInterviewerQuestion } from "./interviewer-question";
+
 export type LiveStatus = "connecting" | "listening" | "user-speaking" | "speaking" | "paused" | "ended" | "error";
 export type LiveInterview = { pause(): void; resume(): void; close(): void; userSpeech(): string };
 
@@ -76,8 +78,9 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
         const checkQuestion = () => {
           if (closed || paused) return;
           if (displayedStatus === "speaking") { questionTimer = window.setTimeout(checkQuestion, 450); return; }
-          const question = assistantSpeech.trim(); assistantSpeech = "";
-          if (question.length >= 20 && question.length <= 500 && question.endsWith("?")) options.onInterviewerQuestion?.(question);
+          const question = detectInterviewerQuestion(assistantSpeech); assistantSpeech = "";
+          console.info("Practice HUD", { stage: "interviewer-question", detected: !!question });
+          if (question) options.onInterviewerQuestion?.(question);
         };
         questionTimer = window.setTimeout(checkQuestion, 900);
       }
