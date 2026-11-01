@@ -57,7 +57,7 @@ test("failed session exchange stops microphone, peer, channel, player, and audio
 });
 
 test("practice transcript and remote close release the microphone and preserve its opening prompt", async () => {
-  let stopped = 0; let peerClosed = 0; let channelClosed = 0; const sent: string[] = []; const statuses: string[] = [];
+  let stopped = 0; let peerClosed = 0; let channelClosed = 0; const sent: string[] = []; const statuses: string[] = []; const questions: string[] = [];
   const track = { stop: () => { stopped++; }, enabled: true };
   const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
   const channel: { readyState: string; onmessage?: (event: { data: string }) => void; send(value: string): void; close(): void } = {
@@ -72,15 +72,20 @@ test("practice transcript and remote close release the microphone and preserve i
   });
   const restoreAudio = mockGlobal("Audio", class { autoplay = false; srcObject = null; pause() {} });
   const restoreContext = mockGlobal("AudioContext", class {
-    createAnalyser() { return { fftSize: 512 }; } createMediaStreamSource() { return { connect() {} }; } async close() {}
+    createAnalyser() { return { fftSize: 512, getByteTimeDomainData(samples: Uint8Array) { samples.fill(128); } }; } createMediaStreamSource() { return { connect() {} }; } async close() {}
   });
   try {
     const live = await startLiveInterview({ signal: new AbortController().signal, openingPrompt: "Ask about the Atlas hiring manager round",
+      onInterviewerQuestion: (question) => questions.push(question),
       createSession: async () => ({ sdp: "v=0 practice answer" }), onStatus: (status) => statuses.push(status), onLevel: () => {}, onError: () => {} });
     channel.onmessage?.({ data: JSON.stringify({ type: "session.started" }) });
     assert.match(sent.join("\n"), /Atlas hiring manager round/);
     channel.onmessage?.({ data: JSON.stringify({ type: "session.input_transcript.delta", delta: "I designed an API" }) });
     channel.onmessage?.({ data: JSON.stringify({ type: "session.input_transcript.delta", delta: " platform." }) });
+    channel.onmessage?.({ data: JSON.stringify({ type: "session.output_transcript.delta", delta: "Tell me about your API platform " }) });
+    channel.onmessage?.({ data: JSON.stringify({ type: "session.output_transcript.delta", delta: "design decisions?" }) });
+    await new Promise((resolve) => setTimeout(resolve, 950));
+    assert.deepEqual(questions, ["Tell me about your API platform design decisions?"]);
     assert.equal(live.userSpeech(), "I designed an API platform.");
     channel.onmessage?.({ data: JSON.stringify({ type: "session.closed" }) });
     live.close();

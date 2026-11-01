@@ -4,11 +4,7 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import type { HudFact } from "@/lib/interview-hud-pipeline";
-
-function emphasized(text: string) {
-  return text.split(/(\$?\d+(?:[.,]\d+)?%?)/g).map((part, index) =>
-    /^\$?\d/.test(part) ? <strong key={index} className="hud-number">{part}</strong> : part);
-}
+import { HudFacts } from "./hud-facts";
 
 export function HudWindowView() {
   const [cues, setCues] = useState<HudFact[]>([]);
@@ -52,10 +48,7 @@ export function HudWindowView() {
         <span aria-hidden="true"><i/><i/><i/><i/><i/><i/></span>
       </button>
       <button type="button" className="hud-hide" onClick={() => void hide()} aria-label="Hide HUD">×</button>
-      <div className="hud-facts" aria-live="polite" aria-atomic="true">
-        {cues.length ? cues.map((cue) => <div className="hud-fact" key={cue.factId} data-fact-id={cue.factId}>{emphasized(cue.text)}</div>)
-          : <p className="hud-waiting">Waiting for a relevant practice question</p>}
-      </div>
+      <HudFacts cues={cues}/>
     </div>
   </main>;
 }

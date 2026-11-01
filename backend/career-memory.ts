@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { practiceReviewSchema } from "../src/lib/practice-review-schema";
 import { careerProfileSchema } from "../src/lib/session-schema";
 
 const id = z.string().regex(/^[a-z0-9-]{1,40}$/);
@@ -87,6 +88,7 @@ export const interviewRoundSchema = z.object({
   interviewDate: z.iso.date().optional(),
   interviewerLinkedInUrl: z.url().max(500).optional(),
   interviewerPdf: z.object({ name: z.string().trim().min(1).max(120), text: z.string().trim().min(1).max(12000) }).strict().optional(),
+  practiceReview: practiceReviewSchema.optional(),
   status: z.enum(["planned", "active", "completed", "cancelled"]),
   startedAt: timestamp.optional(),
   endedAt: timestamp.optional(),
@@ -104,6 +106,7 @@ export const proposedMemoryUpdateSchema = z.object({
   sourceIds,
   originSessionId: id.optional(),
   opportunityId: id.optional(),
+  roundId: id.optional(),
   proposedAt: timestamp,
 }).strict();
 
@@ -145,6 +148,8 @@ export const memoryStateSchema = z.object({
       ctx.addIssue({ code: "custom", path: ["proposals", index, "originSessionId"], message: "Unknown interview session" });
     if (proposal.opportunityId && !opportunities.has(proposal.opportunityId))
       ctx.addIssue({ code: "custom", path: ["proposals", index, "opportunityId"], message: "Unknown opportunity" });
+    if (proposal.roundId && !state.rounds.some((round) => round.id === proposal.roundId && round.opportunityId === proposal.opportunityId))
+      ctx.addIssue({ code: "custom", path: ["proposals", index, "roundId"], message: "Unknown round for this opportunity" });
   });
   state.rounds.forEach((round, index) => {
     if (!opportunities.has(round.opportunityId))

@@ -8,6 +8,7 @@ export function liveSpeakerStatus(now: number, lastInterviewerAudio: number, las
 type Options = {
   microphoneId?: string; outputId?: string; signal: AbortSignal;
   openingPrompt?: string;
+  onInterviewerQuestion?(question: string): void;
   createSession(sdp: string): Promise<{ sdp: string }>;
   onStatus(status: LiveStatus): void; onLevel(level: number): void; onError(message: string): void;
 };
@@ -24,7 +25,8 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
   const micSamples = new Uint8Array(micAnalyser.fftSize);
   let outputAnalyser: AnalyserNode | null = null;
   let outputSamples: Uint8Array<ArrayBuffer> | null = null;
-  let closed = false; let paused = false; let ready = false; let timer = 0; let readyTimer = 0;
+  let closed = false; let paused = false; let ready = false; let timer = 0; let readyTimer = 0; let questionTimer = 0;
+  let assistantSpeech = "";
   let lastInterviewerAudio = 0; let lastUserAudio = 0; let displayedStatus: LiveStatus | null = null;
   const userDeltas: string[] = [];
   const reportStatus = (status: LiveStatus) => { if (status !== displayedStatus) { displayedStatus = status; options.onStatus(status); } };
@@ -32,7 +34,7 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
   options.signal.addEventListener("abort", abort, { once: true });
   function close(showEnded = true) {
     if (closed) return;
-    closed = true; window.clearInterval(timer); window.clearTimeout(readyTimer);
+    closed = true; window.clearInterval(timer); window.clearTimeout(readyTimer); window.clearTimeout(questionTimer);
     if (channel.readyState === "open") channel.send(JSON.stringify({ type: "session.close" }));
     channel.close(); peer.close(); stream.getTracks().forEach((track) => track.stop());
     player.pause(); player.srcObject = null; void context.close();
@@ -68,6 +70,17 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
         channel.send(JSON.stringify({ type: "session.commentary.append", event_id: "opening_greeting", delegation_id: null,
           content: options.openingPrompt ?? "Greet the candidate briefly as their practice interviewer. Ask one opening question about their approved professional background, then listen." }));
       } else if (message.type === "session.input_transcript.delta" && typeof message.delta === "string") userDeltas.push(message.delta);
+      else if (message.type === "session.output_transcript.delta" && typeof message.delta === "string") {
+        assistantSpeech = (assistantSpeech + message.delta).slice(-1000);
+        window.clearTimeout(questionTimer);
+        const checkQuestion = () => {
+          if (closed || paused) return;
+          if (displayedStatus === "speaking") { questionTimer = window.setTimeout(checkQuestion, 450); return; }
+          const question = assistantSpeech.trim(); assistantSpeech = "";
+          if (question.length >= 20 && question.length <= 500 && question.endsWith("?")) options.onInterviewerQuestion?.(question);
+        };
+        questionTimer = window.setTimeout(checkQuestion, 900);
+      }
       else if (message.type === "session.closed") close();
       else if (message.type === "error") { close(false); options.onError("The voice session reported an error. Please restart it."); }
     };

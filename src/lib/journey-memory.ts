@@ -4,7 +4,7 @@ import type { CareerProfile, MemoryProject, Opportunity } from "./session-schema
 import type { OpportunityAnalysis } from "./opportunity-analysis";
 
 export type ResumeReview = { profile: CareerProfile; projects: MemoryProject[] };
-export type PendingInterviewFact = { id: string; title: string; text: string; source: string; sessionId: string; answer?: string; opportunityId?: string };
+export type PendingInterviewFact = { id: string; title: string; text: string; source: string; sessionId: string; answer?: string; opportunityId?: string; roundId?: string };
 
 export const newMemoryId = (prefix: string) => `${prefix}-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 
@@ -21,7 +21,7 @@ export function approvedProjects(state: MemoryState): MemoryProject[] {
 export function pendingInterviewFacts(state: MemoryState): PendingInterviewFact[] {
   const sources = new Map(state.career.sources.map((source) => [source.id, source.excerpt]));
   return state.proposals.map((proposal) => ({ id: proposal.id, title: proposal.projectTitle,
-    text: proposal.text, source: sources.get(proposal.sourceIds[0]) ?? "", sessionId: proposal.originSessionId ?? "", opportunityId: proposal.opportunityId }));
+    text: proposal.text, source: sources.get(proposal.sourceIds[0]) ?? "", sessionId: proposal.originSessionId ?? "", opportunityId: proposal.opportunityId, roundId: proposal.roundId }));
 }
 
 export function approveResumeReview(state: MemoryState, review: ResumeReview, filename: string, now: string): MemoryState {
@@ -73,7 +73,7 @@ export function retainPendingFact(state: MemoryState, pending: PendingInterviewF
   const existingProject = next.career.projects.find((project) => project.title.toLowerCase() === pending.title.trim().toLowerCase());
   next = addProposal(next, { id: pending.id, projectId: existingProject?.id ?? newMemoryId("project"), projectTitle: existingProject?.title ?? pending.title.trim(),
     kind: "accomplishment", text: pending.text.trim(), sourceIds: [sourceId],
-    originSessionId: pending.sessionId, opportunityId: pending.opportunityId, proposedAt: now });
+    originSessionId: pending.sessionId, opportunityId: pending.opportunityId, roundId: pending.roundId, proposedAt: now });
   return next;
 }
 

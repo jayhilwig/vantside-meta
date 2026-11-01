@@ -1,5 +1,6 @@
-import { memoryStateSchema, type MemoryState } from "../../backend/career-memory";
+import { dismissProposal, memoryStateSchema, type MemoryState } from "../../backend/career-memory";
 import { newMemoryId } from "./journey-memory";
+import { practiceReviewSchema, type PracticeReview } from "./practice-review-schema";
 
 export function saveRound(state: MemoryState, opportunityId: string, label: string, interviewer: string,
   status: MemoryState["rounds"][number]["status"], roundId?: string,
@@ -24,5 +25,14 @@ export function saveRound(state: MemoryState, opportunityId: string, label: stri
 export function deleteRound(state: MemoryState, opportunityId: string, roundId: string): MemoryState {
   if (!state.rounds.some((round) => round.id === roundId && round.opportunityId === opportunityId))
     throw new Error("This interview round is no longer available.");
-  return memoryStateSchema.parse({ ...state, rounds: state.rounds.filter((round) => round.id !== roundId) });
+  const withoutProposals = state.proposals.filter((proposal) => proposal.roundId === roundId)
+    .reduce((current, proposal) => dismissProposal(current, proposal.id), state);
+  return memoryStateSchema.parse({ ...withoutProposals, rounds: withoutProposals.rounds.filter((round) => round.id !== roundId) });
+}
+
+export function savePracticeReview(state: MemoryState, opportunityId: string, roundId: string, review: PracticeReview): MemoryState {
+  if (!state.rounds.some((round) => round.id === roundId && round.opportunityId === opportunityId))
+    throw new Error("This interview round is no longer available.");
+  const checked = practiceReviewSchema.parse({ ...review, proposals: [] });
+  return memoryStateSchema.parse({ ...state, rounds: state.rounds.map((round) => round.id === roundId ? { ...round, practiceReview: checked } : round) });
 }

@@ -10,7 +10,7 @@ import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, inte
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
 import { localApiHeaders } from "@/lib/local-api-auth";
 import { readJobPdfText } from "@/lib/job-pdf-text";
-import { deleteRound, saveRound } from "@/lib/interview-rounds";
+import { deleteRound, savePracticeReview, saveRound } from "@/lib/interview-rounds";
 import { isCurrentOperation, visibleStepError } from "@/lib/step-workflow";
 import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-schema";
 import type { OpportunityAnalysis } from "@/lib/opportunity-analysis";
@@ -30,11 +30,11 @@ function CompanyIcon({ company, logo }: { company: string; logo?: string }) {
   return <span className="company-icon">{logo ? <Image src={logo} alt="" width={32} height={32} unoptimized /> : company.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</span>;
 }
 
-function RoundCard({ round, selected, onEdit }: { round: MemoryState["rounds"][number]; selected: boolean; onEdit(): void }) {
+function RoundCard({ round, selected, onEdit, onDelete }: { round: MemoryState["rounds"][number]; selected: boolean; onEdit(): void; onDelete(): void }) {
   return <div className="round-card"><button type="button" className={`round-item${selected ? " selected" : ""}`} aria-pressed={selected} onClick={onEdit}>
     <strong>{round.label}</strong>{round.interviewDate && <span>{round.interviewDate}</span>}
     <small>{round.status === "completed" ? "Completed" : round.status === "cancelled" ? "Cancelled" : "Upcoming"}</small>
-  </button>{(round.interviewerLinkedInUrl || round.interviewerPdf) && <div className="round-card-references">
+  </button>{selected && <button type="button" className="selected-card-delete" aria-label={`Delete ${round.label} round`} onClick={onDelete}>×</button>}{(round.interviewerLinkedInUrl || round.interviewerPdf) && <div className="round-card-references">
     {round.interviewerLinkedInUrl && /^https:\/\/(?:www\.)?linkedin\.com\/in\//i.test(round.interviewerLinkedInUrl) && <a href={round.interviewerLinkedInUrl} target="_blank" rel="noopener noreferrer">LinkedIn profile ↗</a>}
     {round.interviewerPdf && <details><summary>View text from {round.interviewerPdf.name}</summary><p>{round.interviewerPdf.text}</p></details>}
   </div>}</div>;
@@ -414,6 +414,26 @@ export function JourneyApp() {
     setRoundPdf(round.interviewerPdf); setRoundNotice(""); setRoundError("");
   }
 
+  function confirmDeleteRound(round: MemoryState["rounds"][number]) {
+    const opportunity = opportunityById(memoryRef.current, round.opportunityId);
+    setConfirmation({ title: "Delete interview round?", description: `Delete ${round.label} for ${opportunity?.role ?? "this role"} at ${opportunity?.company ?? "this company"}?`,
+      actionLabel: "Delete round", onConfirm: () => void run(async () => {
+        await commitMemory((state) => deleteRound(state, round.opportunityId, round.id)); resetRoundEditor(); setRoundNotice("Round deleted.");
+      }, 4) });
+  }
+
+  function confirmDeleteOpportunity(id: string) {
+    const opportunity = opportunityById(memoryRef.current, id);
+    if (!opportunity) return;
+    setConfirmation({ title: "Delete saved opportunity?", description: `Delete ${opportunity.role} at ${opportunity.company} and its interview rounds? Career Memory stays saved.`,
+      actionLabel: "Delete opportunity", onConfirm: () => void run(async () => {
+        const next = await commitMemory((state) => removeOpportunity(state, id)); const previous = next.opportunities.at(-1);
+        setActiveOpportunityId(previous?.id ?? null); setConfirmedOpportunity(previous ? { company: previous.company, role: previous.role, confidence: "clear" } : null);
+        setJobAnalysis(previous?.requirements ? { company: previous.company, role: previous.role, seniority: previous.seniority, confidence: "clear", requirements: previous.requirements } : null);
+        resetRoundEditor(); setMemoryProposals(pendingInterviewFacts(next));
+      }, 4) });
+  }
+
   async function submitRound() {
     if (roundWriteRef.current || !activeOpportunityId) return;
     roundWriteRef.current = true; setRoundSaving(true); setRoundError(""); setRoundNotice("");
@@ -727,6 +747,8 @@ export function JourneyApp() {
     || (editingRound.interviewDate ?? "") !== roundDate || (editingRound.interviewerLinkedInUrl ?? "") !== roundLinkedInUrl.trim()
     || (editingRound.interviewerPdf?.text ?? "") !== (roundPdf?.text ?? "")
     || (editingRound.interviewerPdf?.name ?? "") !== (roundPdf?.name ?? ""));
+  const interviewActionHint = !activeOpportunityId && !selectedRoundId ? "Select an opportunity and interview round."
+    : !activeOpportunityId ? "Select an opportunity." : !selectedRoundId ? "Select an interview round." : undefined;
   const coverage = jobAnalysis ? careerMemoryCoverage(jobAnalysis, approvedFacts,
     jobAlignment ? alignCareerFacts(jobAnalysis, approvedFacts) : null) : null;
   if (!loaded) return <main className="app-shell">{intro && <OpeningSequence onFinish={closeIntro} />}<div className="page-wrap" role="status">Loading Career Memory…</div></main>;
@@ -747,14 +769,18 @@ export function JourneyApp() {
     const facts = new Set(memoryRef.current.career.facts.map((item) => item.id));
     return <ConversationalPracticeApp profile={approvedProfile} projects={approved} context={{ company: selected.company, role: selected.role,
       round: round?.label ?? "General interview", description: selected.description, requirements: selected.requirements?.map((item) => item.text) ?? [],
+      hudRequirements: selected.requirements, preparationQuestions: selected.preparationQuestions,
       strengths: selected.alignment?.strengths.filter((item) => facts.has(item.factId)).map((item) => selected.requirements?.find((requirement) => requirement.id === item.requirementId)?.text).filter((item): item is string => !!item) ?? [],
       areas: selected.alignment?.needsEvidence.map((id) => selected.requirements?.find((item) => item.id === id)?.text).filter((item): item is string => !!item) ?? [] }}
+      savedReview={round?.practiceReview ?? null} savedPending={pendingInterviewFacts(memoryRef.current).filter((item) => item.roundId === round?.id)}
+      onSaveReview={async (review) => { if (!round) throw new Error("Select an interview round to save this review.");
+        await commitMemory((state) => savePracticeReview(state, selected.id, round.id, review)); }}
       onBack={() => setPractice(null)} onProposals={async (items) => {
         const sessionId = newMemoryId("session");
         const existing = new Set([...memoryRef.current.career.facts.map((item) => normalizeFact(item.text)),
           ...memoryRef.current.proposals.map((item) => normalizeFact(item.text))]);
         const proposals = items.filter((item) => { const key = normalizeFact(item.text); if (existing.has(key)) return false; existing.add(key); return true; })
-          .map((item) => ({ ...item, id: newMemoryId("fact"), sessionId, answer: item.source, opportunityId: selected.id }));
+          .map((item) => ({ ...item, id: newMemoryId("fact"), sessionId, answer: item.source, opportunityId: selected.id, roundId: round?.id }));
         if (!proposals.length) throw new Error("These experiences are already in Career Memory.");
         const next = await commitMemory((state) => proposals.reduce((current, item) => retainPendingFact(current, item, new Date().toISOString()), state));
         setMemoryProposals(pendingInterviewFacts(next));
@@ -917,14 +943,14 @@ export function JourneyApp() {
         {step === 4 && <>
           <div className="detail-heading"><span className="eyebrow">04 / YOUR INTERVIEW</span><h2>Prepare for your interview.</h2></div>
           {!memoryRef.current.opportunities.length ? <p className="detail-note">Save an opportunity in Step 3 to prepare for it here.</p> : <>
-            <div className="opportunity-picker" aria-label="Saved opportunities">{memoryRef.current.opportunities.map((item) => { const itemRounds = rounds.filter((round) => round.opportunityId === item.id); return <button key={item.id} type="button" className={`opportunity-picker-item${activeOpportunityId === item.id ? " selected" : ""}`} aria-pressed={activeOpportunityId === item.id} onClick={() => selectSavedOpportunity(item.id)}><CompanyIcon company={item.company} logo={item.brandLogoDataUrl}/><strong>{item.company}</strong><span>{item.role}</span><small>{itemRounds.filter((round) => round.status === "completed").length} of {itemRounds.length} rounds completed</small></button>; })}</div>
-            {activeOpportunityId && <section className="round-setup"><div className="round-setup-heading"><h3>Interview rounds</h3><button type="button" className="saved-opportunity-delete" aria-label="Delete selected opportunity" title="Delete selected opportunity" onClick={() => setConfirmation({ title: "Delete saved opportunity?", description: "This removes this opportunity and its interview rounds. Career Memory stays saved.", actionLabel: "Delete opportunity", onConfirm: () => void run(async () => { const id = activeOpportunityId; if (!id) return; const next = await commitMemory((state) => removeOpportunity(state, id)); const previous = next.opportunities.at(-1); setActiveOpportunityId(previous?.id ?? null); setConfirmedOpportunity(previous ? { company: previous.company, role: previous.role, confidence: "clear" } : null); setJobAnalysis(previous?.requirements ? { company: previous.company, role: previous.role, seniority: previous.seniority, confidence: "clear", requirements: previous.requirements } : null); resetRoundEditor(); setMemoryProposals(pendingInterviewFacts(next)); }, 4) })}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7M10 11v5m4-5v5"/></svg></button></div>
-              <div className="round-list">{rounds.filter((round) => round.opportunityId === activeOpportunityId).map((round) => <RoundCard key={round.id} round={round} selected={selectedRoundId === round.id} onEdit={() => editRound(round)}/>)}</div>
+            <div className="opportunity-picker" aria-label="Saved opportunities">{memoryRef.current.opportunities.map((item) => { const itemRounds = rounds.filter((round) => round.opportunityId === item.id); const selected = activeOpportunityId === item.id; return <div className="opportunity-card" key={item.id}><button type="button" className={`opportunity-picker-item${selected ? " selected" : ""}`} aria-pressed={selected} onClick={() => selectSavedOpportunity(item.id)}><CompanyIcon company={item.company} logo={item.brandLogoDataUrl}/><strong>{item.company}</strong><span>{item.role}</span><small>{itemRounds.filter((round) => round.status === "completed").length} of {itemRounds.length} rounds completed</small></button>{selected && <button type="button" className="selected-card-delete" aria-label={`Delete ${item.role} at ${item.company}`} onClick={() => confirmDeleteOpportunity(item.id)}>×</button>}</div>; })}</div>
+            {activeOpportunityId && <section className="round-setup"><h3>Interview rounds</h3>
+              <div className="round-list">{rounds.filter((round) => round.opportunityId === activeOpportunityId).map((round) => <RoundCard key={round.id} round={round} selected={selectedRoundId === round.id} onEdit={() => editRound(round)} onDelete={() => confirmDeleteRound(round)}/>)}</div>
               <div className="round-editor"><div className="round-fields"><label className="field-label">Who are you interviewing with?<select value={roundName} onChange={(event) => { if (event.target.value === "Other" && roundName !== "Other") setRoundCustom(""); setRoundName(event.target.value); setRoundNotice(""); }}><option value="">Choose an interview round</option>{["Recruiter / HR", "Hiring Manager", "Team Member", "Panel Interview", "Executive / Leadership", "Portfolio / Technical Interview", "Other"].map((label) => <option key={label}>{label}</option>)}</select></label><label className="field-label">Interview date (optional)<input type="date" value={roundDate} onChange={(event) => setRoundDate(event.target.value)}/></label></div><div className="round-custom-slot">{roundName === "Other" && <label className="field-label">Describe the interview<input value={roundCustom} maxLength={100} onChange={(event) => setRoundCustom(event.target.value)}/></label>}</div>
                 <details className="round-reference"><summary>Interviewer reference (optional)</summary><label className="field-label">LinkedIn profile URL<input type="url" value={roundLinkedInUrl} placeholder="https://www.linkedin.com/in/..." onChange={(event) => setRoundLinkedInUrl(event.target.value)}/></label><label className="file-button">Choose LinkedIn PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => void readRoundPdf(event.target.files?.[0])}/></label>{roundPdf && <p>{roundPdf.name} <button type="button" className="text-button" onClick={() => setRoundPdf(undefined)}>Remove PDF</button></p>}</details>
-                <div className="inline-actions">{(!selectedRoundId || roundDirty) && <button type="button" className="secondary-button" disabled={roundSaving || !roundName || (roundName === "Other" && roundCustom.trim().length < 2)} onClick={() => void submitRound()}>{roundSaving ? "Saving…" : selectedRoundId ? "Save Changes" : "Add Round"}</button>}{selectedRoundId && <><button type="button" className="text-button" onClick={resetRoundEditor}>Add another round</button><button type="button" className="text-button" onClick={() => setConfirmation({ title: "Delete interview round?", description: "This removes only this round and its interviewer reference.", actionLabel: "Delete round", onConfirm: () => void run(async () => { const next = await commitMemory((state) => deleteRound(state, activeOpportunityId, selectedRoundId)); resetRoundEditor(); setRoundNotice("Round deleted."); setRounds(next.rounds); }, 4) })}>Delete round</button></>}</div>{roundNotice && <p role="status" className="detail-note">{roundNotice}</p>}{roundError && <p role="alert" className="step-error">{roundError}</p>}
+                <div className="inline-actions">{(!selectedRoundId || roundDirty) && <button type="button" className="secondary-button" disabled={roundSaving || !roundName || (roundName === "Other" && roundCustom.trim().length < 2)} onClick={() => void submitRound()}>{roundSaving ? "Saving…" : selectedRoundId ? "Save Changes" : "Add Round"}</button>}{selectedRoundId && <button type="button" className="text-button" onClick={resetRoundEditor}>Add another round</button>}</div>{roundNotice && <p role="status" className="detail-note">{roundNotice}</p>}{roundError && <p role="alert" className="step-error">{roundError}</p>}
               </div>
-              <div className="interview-actions"><button type="button" className="secondary-button" disabled={!canPractice} onClick={() => setPractice("voice")}>Practice Interview</button><button type="button" className="go-live-button" disabled={!canPractice || !selectedRoundId} onClick={() => setPractice("personal")}><span className="go-live-play" aria-hidden="true">▶</span>Go Live</button></div>
+              <div className="interview-actions"><span className="interview-action-wrap" tabIndex={interviewActionHint ? 0 : undefined} title={interviewActionHint} data-hint={interviewActionHint} aria-label={interviewActionHint}><button type="button" className="secondary-button" disabled={!canPractice || !selectedRoundId} onClick={() => setPractice("voice")}>Practice Interview</button></span><span className="interview-action-wrap" tabIndex={interviewActionHint ? 0 : undefined} title={interviewActionHint} data-hint={interviewActionHint} aria-label={interviewActionHint}><button type="button" className="go-live-button" disabled={!canPractice || !selectedRoundId} onClick={() => setPractice("personal")}><span className="go-live-play" aria-hidden="true">▶</span>Go Live</button></span></div>
             </section>}
           </>}
         </>}
