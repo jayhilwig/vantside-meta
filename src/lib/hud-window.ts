@@ -12,6 +12,7 @@ export interface HudWindowPort {
 export class HudWindowController {
   private window: HudWindowHandle | null = null;
   private opening: Promise<void> | null = null;
+  private closing: Promise<void> | null = null;
   private visible = false;
   private generation = 0;
   private cues: HudFact[] = [];
@@ -19,8 +20,9 @@ export class HudWindowController {
   constructor(private readonly port: HudWindowPort) {}
 
   async show(): Promise<void> {
-    if (this.opening) return this.opening;
+    if (this.closing) await this.closing;
     this.visible = true;
+    if (this.opening) return this.opening;
     const generation = this.generation;
     this.opening = (async () => {
       const window = await this.port.find() ?? await this.port.create();
@@ -50,9 +52,15 @@ export class HudWindowController {
     this.generation++;
     this.visible = false;
     this.cues = [];
-    const window = this.window;
-    this.window = null;
-    if (window) await window.close().catch(() => undefined);
+    if (this.closing) return this.closing;
+    const closing = (async () => {
+      await this.opening?.catch(() => undefined);
+      const window = this.window;
+      this.window = null;
+      if (window) await window.close().catch(() => undefined);
+    })();
+    this.closing = closing;
+    try { await closing; } finally { if (this.closing === closing) this.closing = null; }
   }
 }
 

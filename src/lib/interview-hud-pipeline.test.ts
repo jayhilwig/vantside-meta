@@ -27,6 +27,30 @@ test("completed question uses Jev then Meta to select only approved, opportunity
   assert.deepEqual(result.cues, [{ factId: "api-flow", projectId: "platform", text: projects[0].facts[0].text }]);
 });
 
+test("Go Live sends only supported opportunity fields to the strict cue endpoint", async () => {
+  const liveOpportunity = { ...opportunity, roundLabel: "Hiring Manager", interviewer: "Hiring Manager" };
+  const routes: string[] = [];
+  const result = await questionToHud({ question, projects,
+    opportunity: liveOpportunity,
+    recentFactIds: [], signal: new AbortController().signal }, async (url, init) => {
+    routes.push(String(url).split("/").at(-1)!);
+    const body = JSON.parse(String(init?.body));
+    assert.deepEqual(Object.keys(body.opportunity).sort(), ["company", "requirements", "role"]);
+    return String(url).endsWith("/decide-hud-cue")
+      ? Response.json({ show: true, reason: "relevant", cues: [{ factId: "api-flow", projectId: "platform" }] })
+      : Response.json({ cue: { projectId: "platform", headline: "API onboarding", cuePhrases: ["Developer flows"],
+        sourceFactIds: ["api-flow"], match: "verified" } });
+  });
+  assert.deepEqual(routes, ["decide-hud-cue", "cue"]);
+  assert.equal(result.reason, "shown");
+});
+
+test("cue service errors remain recoverable and do not show an unverified cue", async () => {
+  await assert.rejects(questionToHud({ question, projects, opportunity, recentFactIds: [],
+    signal: new AbortController().signal }, async () => Response.json({ error: "private upstream detail" }, { status: 502 })),
+  /Cue service is unavailable/);
+});
+
 test("silence, irrelevant conversation, no approved match, and repeated cues never call Meta", async () => {
   let calls = 0;
   const fetcher: typeof fetch = async () => { calls++; return Response.json({ show: false, reason: "irrelevant", cues: [] }); };

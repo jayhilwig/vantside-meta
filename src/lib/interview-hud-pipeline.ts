@@ -13,6 +13,9 @@ export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
   baseUrl = process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787"): Promise<HudResult> {
   const question = input.question.trim().slice(0, 500);
   if (question.length < 4) return { question, cues: [], reason: "no-match" };
+  // Round labels belong to the session UI; the strict cue endpoint accepts only opportunity memory.
+  const opportunity: HudOpportunity = { company: input.opportunity.company, role: input.opportunity.role,
+    requirements: input.opportunity.requirements, preparationQuestions: input.opportunity.preparationQuestions };
   const post = async (route: string, body: object) => {
     const headers = typeof window === "undefined" ? { "Content-Type": "application/json" } : await localApiHeaders();
     const response = await fetcher(`${baseUrl.replace(/\/$/, "")}${route}`, {
@@ -23,7 +26,7 @@ export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
     return result;
   };
   const decision = await post("/decide-hud-cue", { question, projects: input.projects,
-    opportunity: input.opportunity, recentFactIds: input.recentFactIds.slice(-10) }) as {
+    opportunity, recentFactIds: input.recentFactIds.slice(-10) }) as {
       show?: boolean; reason?: string; cues?: Array<{ factId?: string; projectId?: string }> };
   if (!decision || !decision.show) return { question, cues: [], reason: decision?.reason === "unavailable" ? "unavailable" : decision?.reason === "irrelevant" ? "irrelevant" : "no-match" };
 
@@ -37,7 +40,7 @@ export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
     facts: project.facts.filter((fact) => eligible.has(fact.id)) })).filter((project) => project.facts.length);
   if (!selected.length) return { question, cues: [], reason: "no-match" };
 
-  const result = await post("/cue", { question, projects: selected, opportunity: input.opportunity }) as { cue?: unknown };
+  const result = await post("/cue", { question, projects: selected, opportunity }) as { cue?: unknown };
   const parsed = personalCueSchema(selected).safeParse(result.cue);
   if (!parsed.success) throw new Error("The cue could not be verified. Continue practicing or try another question.");
   if (parsed.data.match === "none") return { question, cues: [], reason: "no-match" };
