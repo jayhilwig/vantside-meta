@@ -17,34 +17,11 @@ Career Memory is cumulative across opportunities. New facts require approval; jo
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    U["VantSide desktop<br/>Tauri 2 · Next.js · React"]
-    R["Resume + career conversation"]
-    O["Job description"]
-    M["Meta Muse Spark<br/>Career facts and interview context"]
-    B["Baseten · Muse Spark Open<br/>Optional opportunity analysis"]
-    V["OpenAI GPT-Live<br/>Natural spoken conversation"]
-    DB[("Local SQLite<br/>Approved Career Memory")]
-    Q["Interview question or context"]
-    F["Retrieve matching<br/>approved facts"]
-    J["TypeSafe AI Jev<br/>Decide whether a cue is useful"]
-    H["Movable VantSide HUD<br/>Short factual reminders"]
+![VantSide architecture showing Meta Muse Spark, optional Baseten, OpenAI GPT-Live, TypeSafe AI Jev, local SQLite and the movable HUD](docs/architecture-diagram.svg)
 
-    U --> R
-    U --> O
-    R --> M
-    O --> M
-    O -. "Explicit provider selection" .-> B
-    M -->|"User reviews and approves"| DB
-    B -->|"Opportunity context"| U
-    U <--> V
-    V --> Q
-    Q --> F
-    DB --> F
-    F --> J
-    J -->|"Show relevant cue"| H
-```
+[Open the architecture diagram as a standalone SVG](docs/architecture-diagram.svg)
+
+The architecture graphic is a static SVG rather than an interactive Mermaid diagram, so it displays consistently on GitHub and does not depend on GitHub's zoom or fullscreen controls. The provider names are shown as labels rather than unverified logos.
 
 ## Technology
 
