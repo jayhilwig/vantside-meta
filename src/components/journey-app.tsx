@@ -297,6 +297,7 @@ export function JourneyApp() {
     setLiveStatus("connecting"); setInterviewError("");
     try {
       const live = await startLiveInterview({ microphoneId, outputId, signal: controller.signal,
+        openingPrompt: "Begin the Career Memory conversation with one grounded question about the approved career map. This conversation continues until the candidate chooses to stop.",
         createSession: async (sdp) => post<{ sdp: string }>("/interview/live/session", { sdp, profile: approvedProfile, projects: approved }, controller.signal),
         onStatus: (status) => { setLiveStatus(status); if (status === "ended" && liveRef.current) void endLiveInterview(); }, onLevel: setLiveLevel,
         onError: (message) => {

@@ -21,7 +21,11 @@ const context = { sdp: "v=0\r\no=- 123 456 IN IP4 127.0.0.1\r\n", profile: { pro
 
 test("practice opening uses only the selected opportunity and round while Step 2 stays foundational", () => {
   const foundational = liveSessionRequest(context);
-  assert.match(foundational.session.input[0].content[0].text, /approved background/);
+  assert.match(foundational.session.input[0].content[0].text, /approved career map/);
+  assert.match(foundational.session.instructions, /Only the candidate decides when to end it/);
+  assert.match(foundational.session.instructions, /If the candidate asks whether you have more questions/);
+  assert.match(foundational.session.instructions, /naturally ask about another meaningful role/);
+  assert.doesNotMatch(foundational.session.instructions, /You are VantSide's consensual practice interviewer/);
   assert.doesNotMatch(foundational.session.input[0].content[0].text, /Atlas/);
   const practice = liveSessionRequest({ ...context, practice: { company: "Atlas", role: "Product Designer", round: "Hiring Manager",
     description: "Design an API platform", requirements: ["API platform design"], strengths: ["User research"], areas: ["API platform design"] } });
@@ -30,6 +34,34 @@ test("practice opening uses only the selected opportunity and round while Step 2
   assert.match(prompt, /API platform design/);
   assert.match(prompt, /Led customer research/);
   assert.doesNotMatch(prompt, /Other Company/);
+  assert.match(practice.session.instructions, /practice interviewer/);
+  assert.doesNotMatch(practice.session.instructions, /Only the candidate decides when to end it|Career Memory conversation partner/);
+});
+
+test("foundational interview uses a balanced approved career map and conversational breadth guidance", () => {
+  const request = liveSessionRequest({ ...context, projects: [
+    { projectId: "recent", title: "Recent identity role", dates: "2024–2026", dateSource: "2024–2026",
+      facts: Array.from({ length: 40 }, (_, index) => ({ id: `recent-${index}`, text: `Identity contribution ${index}`, source: `Identity contribution ${index}` })) },
+    { projectId: "older", title: "Earlier fraud systems", dates: "2010–2014", dateSource: "2010–2014",
+      facts: [{ id: "patent", text: "Co-designed a patented fraud prevention approach", source: "Co-designed a patented fraud prevention approach" }] },
+  ] });
+  const text = request.session.input[0].content[0].text;
+  assert.match(text, /Earlier fraud systems/);
+  assert.match(text, /patented fraud prevention approach/);
+  assert.match(text, /2010–2014/);
+  assert.doesNotMatch(text, /Identity contribution 39/);
+  assert.match(text, /two or three distinct experiences/);
+  assert.match(text, /most recent role is not automatically the most important/);
+  assert.match(text, /not to read resume bullets or walk every role chronologically/);
+  assert.match(text, /older work selectively/);
+  assert.match(text, /follow their lead/);
+  assert.match(text, /already approved facts to notice underexplored areas/);
+  assert.match(text, /do not claim to remember unapproved past conversations/);
+  assert.match(text, /one to three useful follow-ups/);
+  assert.match(text, /one clear question at a time/);
+  assert.match(request.session.instructions, /Do not default repeatedly to the newest role/);
+  assert.match(request.session.instructions, /natural opening to explore a different significant experience/);
+  assert.doesNotMatch(text, /job description|interview round/i);
 });
 
 test("live session keeps key server-side and sends approved context with WebRTC offer", async () => {
