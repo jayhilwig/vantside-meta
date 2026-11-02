@@ -1,6 +1,6 @@
 export type GoLivePreflight = {
   consent: boolean;
-  inputMode: "microphone" | "text";
+  inputMode: "microphone" | "text" | "system";
   microphoneId: string;
   speakerId: string;
   testedMicrophoneId: string | null;
@@ -10,6 +10,7 @@ export type GoLivePreflight = {
 };
 
 export function goLiveReady(state: GoLivePreflight): boolean {
+  if (state.inputMode === "system") return false;
   if (!state.consent || state.microphoneTesting || state.speakerTesting) return false;
   return state.testedMicrophoneId === state.microphoneId && state.testedSpeakerId === state.speakerId;
 }

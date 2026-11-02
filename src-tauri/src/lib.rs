@@ -1,4 +1,5 @@
 mod career_store;
+mod system_loopback;
 
 use tauri::Manager;
 
@@ -17,6 +18,7 @@ fn read_local_api_token(app: tauri::AppHandle, window: tauri::WebviewWindow) -> 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(system_loopback::SystemLoopbackState::default())
         .setup(|app| {
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
@@ -27,10 +29,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_local_api_token,
             career_store::load_career_memory,
-            career_store::save_career_memory
+            career_store::save_career_memory,
+            system_loopback::list_system_outputs,
+            system_loopback::start_system_output_capture,
+            system_loopback::stop_system_output_capture
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                system_loopback::stop_all(&window.app_handle().state::<system_loopback::SystemLoopbackState>());
                 if let Some(hud) = window.app_handle().get_webview_window("hud") {
                     let _ = hud.close();
                 }
