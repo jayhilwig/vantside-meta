@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractLiveEvidenceProposals, LiveEvidenceBuffer, liveEvidenceChunks,
+import { deduplicateLiveProposals, extractLiveEvidenceProposals, LiveEvidenceBuffer, liveEvidenceChunks,
   LIVE_EXTRACTION_CHARS, MAX_LIVE_EVIDENCE_CHARS } from "./live-evidence";
 
 test("long session evidence retains early, middle, and late speech for extraction", async () => {
@@ -27,6 +27,27 @@ test("evidence cap reports a limit instead of silently keeping only the beginnin
   assert.equal(evidence.append("end of captured speech"), true);
   assert.equal(evidence.length(), MAX_LIVE_EVIDENCE_CHARS);
   assert.equal(evidence.text().endsWith("en"), true);
+});
+
+test("transcript diagnostics count deltas and estimate segments without labeling deltas as turns", () => {
+  const evidence = new LiveEvidenceBuffer();
+  evidence.append("I led research", 1_000, 1_500);
+  evidence.append(" with support", 1_500, 2_000);
+  evidence.append("We changed the flow", 5_000, 6_000);
+  assert.deepEqual(evidence.stats(), { characters: evidence.text().length, transcriptEvents: 3, estimatedSpeechSegments: 2 });
+});
+
+test("cross-chunk deduplication removes exact repeats while preserving distinct same-project facts", () => {
+  const proposals = [
+    { title: "Atlas", text: "Interviewed support agents", source: "I interviewed support agents" },
+    { title: "Atlas", text: "Mapped escalation paths", source: "I mapped escalation paths" },
+    { title: "Atlas", text: "Interviewed support agents!", source: "I interviewed support agents" },
+    { title: "Atlas", text: "Improved onboarding", source: "I improved onboarding" },
+    { title: "Atlas", text: "Chose a phased rollout", source: "I chose a phased rollout" },
+  ];
+  const result = deduplicateLiveProposals(proposals, ["Improved onboarding"], ["Chose a phased rollout"]);
+  assert.deepEqual(result.candidates.map((item) => item.text), ["Interviewed support agents", "Mapped escalation paths"]);
+  assert.deepEqual([result.alreadyApproved, result.alreadyPending, result.repeatedInExtraction], [1, 1, 1]);
 });
 
 test("a failed extraction chunk cannot return a partial proposal batch", async () => {

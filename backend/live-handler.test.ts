@@ -127,3 +127,36 @@ test("rich spoken interview keeps distinct grounded details and filters duplicat
     }
   }
 });
+
+test("one malformed proposal does not erase supported facts and rejection counts omit private text", async () => {
+  const previous = [process.env.MODEL_API_KEY, process.env.META_API_BASE_URL, process.env.META_MODEL];
+  process.env.MODEL_API_KEY = "mock"; process.env.META_API_BASE_URL = "https://example.invalid/v1"; process.env.META_MODEL = "mock";
+  try {
+    const transcript = "I interviewed support agents. I mapped their workflow. We reduced handling time by 12%.";
+    const proposals = [
+      { title: "Atlas", text: "Interviewed support agents", source: "I interviewed support agents" },
+      { title: "Atlas", text: "Mapped their workflow", source: "I mapped their workflow" },
+      { title: "Atlas", text: "Interviewed support agents!", source: "I interviewed support agents" },
+      { title: "Atlas", text: "Reduced handling time by 12%", source: "I mapped their workflow" },
+      { title: "Atlas", text: "Invented a market launch", source: "I launched in a new market" },
+      { title: "Atlas", text: "x", source: "I mapped their workflow" },
+    ];
+    const result = await proposeLiveMemory({ transcript }, async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      assert.match(request.messages[0].content, /lessons learned/);
+      assert.match(request.messages[0].content, /several separate facts/);
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ proposals }) } }] });
+    });
+    assert.equal(result.status, 200);
+    const body = result.body as { proposals: typeof proposals; diagnostics: { modelCandidates: number; schemaRejected: number;
+      sourceRejected: number; numberRejected: number; duplicateRejected: number; accepted: number } };
+    assert.deepEqual(body.proposals.map((item) => item.text), ["Interviewed support agents", "Mapped their workflow"]);
+    assert.deepEqual(body.diagnostics, { modelCandidates: 6, schemaRejected: 1, sourceRejected: 1,
+      numberRejected: 1, duplicateRejected: 1, accepted: 2 });
+    assert.doesNotMatch(JSON.stringify(body.diagnostics), /support|workflow|handling/);
+  } finally {
+    for (const [index, name] of ["MODEL_API_KEY", "META_API_BASE_URL", "META_MODEL"].entries()) {
+      if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+    }
+  }
+});

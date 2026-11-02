@@ -1,8 +1,9 @@
 import { detectInterviewerQuestion } from "./interviewer-question";
-import { LiveEvidenceBuffer } from "./live-evidence";
+import { LiveEvidenceBuffer, type LiveEvidenceStats } from "./live-evidence";
 
 export type LiveStatus = "connecting" | "listening" | "user-speaking" | "speaking" | "paused" | "ended" | "error";
-export type LiveInterview = { pause(): void; resume(): void; close(): void; finish(): Promise<string>; userSpeech(): string };
+export type LiveInterview = { pause(): void; resume(): void; close(): void; finish(): Promise<string>;
+  userSpeech(): string; evidenceStats(): LiveEvidenceStats };
 
 export function liveSpeakerStatus(now: number, lastInterviewerAudio: number, lastUserAudio: number): "speaking" | "user-speaking" | "listening" {
   return now - lastInterviewerAudio < 450 ? "speaking" : now - lastUserAudio < 400 ? "user-speaking" : "listening";
@@ -51,7 +52,7 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
     resolveFinish?.(evidence.text()); resolveFinish = null;
   }
   const live: LiveInterview = {
-    close, userSpeech: () => evidence.text(),
+    close, userSpeech: () => evidence.text(), evidenceStats: () => evidence.stats(),
     finish() {
       if (closed) return Promise.resolve(evidence.text());
       if (finalizing) return finalizing;
@@ -85,14 +86,14 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
     };
     channel.onmessage = (event) => {
       if (closed) return;
-      let message: { type?: string; delta?: string; reason?: string; error?: { code?: string } };
+      let message: { type?: string; delta?: string; start_ms?: number; end_ms?: number; reason?: string; error?: { code?: string } };
       try { message = JSON.parse(String(event.data)); } catch { return; }
       if (message.type === "session.started") {
         ready = true; window.clearTimeout(readyTimer); reportStatus("listening");
         channel.send(JSON.stringify({ type: "session.commentary.append", event_id: "opening_greeting", delegation_id: null,
           content: options.openingPrompt ?? "Greet the candidate briefly as their practice interviewer. Ask one opening question about their approved professional background, then listen." }));
       } else if (message.type === "session.input_transcript.delta" && typeof message.delta === "string") {
-        if (evidence.append(message.delta) && !evidenceLimitNotified) {
+        if (evidence.append(message.delta, message.start_ms, message.end_ms) && !evidenceLimitNotified) {
           evidenceLimitNotified = true;
           options.onEvidenceLimit?.();
         }

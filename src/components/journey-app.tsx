@@ -6,7 +6,7 @@ import { BrandMark, OpeningSequence, PracticeApp } from "./practice-app";
 import { InterviewPracticeApp } from "./interview-practice-app";
 import { ConversationalPracticeApp } from "./conversational-practice-app";
 import { startLiveInterview, type LiveInterview, type LiveStatus } from "@/lib/live-interview";
-import { extractLiveEvidenceProposals } from "@/lib/live-evidence";
+import { deduplicateLiveProposals, extractLiveEvidenceProposals, liveEvidenceChunks } from "@/lib/live-evidence";
 import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, interviewEncouragement, interviewTime } from "@/lib/interview-timing";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
@@ -148,6 +148,7 @@ export function JourneyApp() {
   const [memoryProposals, setMemoryProposals] = useState<MemoryProposal[]>([]);
   const [liveStatus, setLiveStatus] = useState<LiveStatus | "ready">("ready");
   const liveRef = useRef<LiveInterview | null>(null);
+  const liveWallStartedRef = useRef<number | null>(null);
   const endLiveRef = useRef<() => Promise<void>>(async () => {});
   const liveStartRef = useRef<AbortController | null>(null);
   const endingLiveRef = useRef(false);
@@ -256,6 +257,7 @@ export function JourneyApp() {
     liveProposalRequestRef.current?.abort(); liveProposalRequestRef.current = null;
     liveStartRef.current?.abort(); liveStartRef.current = null;
     const live = liveRef.current; liveRef.current = null; live?.close();
+    liveWallStartedRef.current = null;
   }
 
   useEffect(() => () => {
@@ -290,6 +292,7 @@ export function JourneyApp() {
     setLiveProposalResult("idle");
     pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false);
     liveClockRef.current = emptyInterviewClock(); setLiveElapsed(0);
+    liveWallStartedRef.current = null;
     const controller = new AbortController(); liveStartRef.current = controller;
     setLiveStatus("connecting"); setInterviewError("");
     try {
@@ -305,6 +308,7 @@ export function JourneyApp() {
       });
       if (controller.signal.aborted) { live.close(); return; }
       liveRef.current = live;
+      liveWallStartedRef.current = Date.now();
       activeSessionRef.current = newMemoryId("session");
     } catch (cause) {
       if (!controller.signal.aborted) {
@@ -331,6 +335,10 @@ export function JourneyApp() {
       setLiveStatus("ended"); setLiveLevel(0);
       const finalTime = interviewClockSeconds(advanceInterviewClock(liveClockRef.current, "ended", Date.now()), Date.now());
       setLiveElapsed(finalTime.elapsed);
+      console.info("Career Memory extraction", { stage: "capture", durationSeconds: liveWallStartedRef.current === null ? 0 :
+        Math.round((Date.now() - liveWallStartedRef.current) / 1000), activeSeconds: finalTime.elapsed,
+        ...(live?.evidenceStats() ?? { characters: 0, transcriptEvents: 0, estimatedSpeechSegments: 0 }) });
+      liveWallStartedRef.current = null;
       if (transcript.length < 10) { setInterviewError("The session ended, but no reviewable answer was captured."); return; }
       pendingLiveTranscriptRef.current = transcript;
       await prepareLiveProposals();
@@ -342,25 +350,47 @@ export function JourneyApp() {
     if (!transcript || liveProposalRequestRef.current) return;
     const request = new AbortController(); liveProposalRequestRef.current = request;
     setCanRetryLiveProposals(false); setReviewingLiveProposals(true); setInterviewError(""); setLiveProposalResult("idle");
+    const chunkCount = liveEvidenceChunks(transcript).length;
+    let chunkIndex = 0;
+    let completedChunks = 0;
+    let stage = "provider";
+    console.info("Career Memory extraction", { stage: "chunking", characters: transcript.length, chunks: chunkCount });
     try {
       const extracted = await extractLiveEvidenceProposals(transcript, async (chunk) => {
-        const result = await post<{ proposals: Array<Pick<MemoryProposal, "title" | "text" | "source">> }>("/interview/live/proposals", { transcript: chunk }, request.signal);
+        const index = ++chunkIndex;
+        const result = await post<{ proposals: Array<Pick<MemoryProposal, "title" | "text" | "source">>;
+          diagnostics?: { modelCandidates: number; schemaRejected: number; sourceRejected: number;
+            numberRejected: number; duplicateRejected: number; accepted: number } }>("/interview/live/proposals", { transcript: chunk }, request.signal);
+        const counts = result.diagnostics;
+        console.info("Career Memory extraction", { stage: "provider-result", chunk: index, chunks: chunkCount,
+          characters: chunk.length, modelCandidates: counts?.modelCandidates, schemaRejected: counts?.schemaRejected,
+          sourceRejected: counts?.sourceRejected, numberRejected: counts?.numberRejected,
+          duplicateRejected: counts?.duplicateRejected, accepted: counts?.accepted, returned: result.proposals.length });
+        completedChunks++;
         return result.proposals;
       });
       if (request.signal.aborted) return;
       const sessionId = activeSessionRef.current ?? newMemoryId("session"); activeSessionRef.current = sessionId;
-      const existing = new Set([...memoryRef.current.career.facts.map((fact) => normalizeFact(fact.text)), ...memoryRef.current.proposals.map((fact) => normalizeFact(fact.text))]);
-      const candidates = extracted.filter((item) => { const key = normalizeFact(item.text); if (existing.has(key)) return false; existing.add(key); return true; })
+      const deduplicated = deduplicateLiveProposals(extracted, memoryRef.current.career.facts.map((fact) => fact.text),
+        memoryRef.current.proposals.map((fact) => fact.text));
+      console.info("Career Memory extraction", { stage: "deduplication", providerAccepted: extracted.length,
+        alreadyApproved: deduplicated.alreadyApproved, alreadyPending: deduplicated.alreadyPending,
+        repeatedInExtraction: deduplicated.repeatedInExtraction, retained: deduplicated.candidates.length });
+      const candidates = deduplicated.candidates
         .map((item) => ({ ...item, id: newMemoryId("fact"), sessionId, answer: item.source }));
+      stage = "persistence";
       if (candidates.length) {
         setMemoryProposals((old) => [...old, ...candidates]);
         const next = await commitMemory((state) => candidates.reduce((current, item) => retainPendingFact(current, item, new Date().toISOString()), state));
         setMemoryProposals(pendingInterviewFacts(next));
       }
+      console.info("Career Memory extraction", { stage: "review-ready", newlyProposed: candidates.length,
+        pendingInSession: memoryRef.current.proposals.filter((item) => item.originSessionId === sessionId).length });
       setLiveProposalResult(candidates.length ? "ready" : "none");
       pendingLiveTranscriptRef.current = "";
     } catch (cause) {
       if (request.signal.aborted) return;
+      console.warn("Career Memory extraction", { stage, reason: "failed", completedChunks, chunks: chunkCount });
       setInterviewError(cause instanceof Error ? cause.message : "Could not prepare memory proposals.");
       setCanRetryLiveProposals(true);
     } finally { if (liveProposalRequestRef.current === request) liveProposalRequestRef.current = null; setReviewingLiveProposals(false); }
