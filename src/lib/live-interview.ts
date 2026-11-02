@@ -1,7 +1,8 @@
 import { detectInterviewerQuestion } from "./interviewer-question";
+import { LiveEvidenceBuffer } from "./live-evidence";
 
 export type LiveStatus = "connecting" | "listening" | "user-speaking" | "speaking" | "paused" | "ended" | "error";
-export type LiveInterview = { pause(): void; resume(): void; close(): void; userSpeech(): string };
+export type LiveInterview = { pause(): void; resume(): void; close(): void; finish(): Promise<string>; userSpeech(): string };
 
 export function liveSpeakerStatus(now: number, lastInterviewerAudio: number, lastUserAudio: number): "speaking" | "user-speaking" | "listening" {
   return now - lastInterviewerAudio < 450 ? "speaking" : now - lastUserAudio < 400 ? "user-speaking" : "listening";
@@ -11,6 +12,7 @@ type Options = {
   microphoneId?: string; outputId?: string; signal: AbortSignal;
   openingPrompt?: string;
   onInterviewerQuestion?(question: string): void;
+  onEvidenceLimit?(): void;
   createSession(sdp: string): Promise<{ sdp: string }>;
   onStatus(status: LiveStatus): void; onLevel(level: number): void; onError(message: string): void;
 };
@@ -27,23 +29,41 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
   const micSamples = new Uint8Array(micAnalyser.fftSize);
   let outputAnalyser: AnalyserNode | null = null;
   let outputSamples: Uint8Array<ArrayBuffer> | null = null;
-  let closed = false; let paused = false; let ready = false; let timer = 0; let readyTimer = 0; let questionTimer = 0;
+  let closed = false; let paused = false; let ready = false; let timer = 0; let readyTimer = 0; let questionTimer = 0; let finishTimer = 0;
+  let finalizing: Promise<string> | null = null;
+  let resolveFinish: ((text: string) => void) | null = null;
+  let evidenceLimitNotified = false;
   let assistantSpeech = "";
   let lastInterviewerAudio = 0; let lastUserAudio = 0; let displayedStatus: LiveStatus | null = null;
-  const userDeltas: string[] = [];
+  const evidence = new LiveEvidenceBuffer();
   const reportStatus = (status: LiveStatus) => { if (status !== displayedStatus) { displayedStatus = status; options.onStatus(status); } };
   const abort = () => close();
   options.signal.addEventListener("abort", abort, { once: true });
   function close(showEnded = true) {
     if (closed) return;
-    closed = true; window.clearInterval(timer); window.clearTimeout(readyTimer); window.clearTimeout(questionTimer);
-    if (channel.readyState === "open") channel.send(JSON.stringify({ type: "session.close" }));
+    closed = true; window.clearInterval(timer); window.clearTimeout(readyTimer); window.clearTimeout(questionTimer); window.clearTimeout(finishTimer);
+    if (channel.readyState === "open" && !finalizing) {
+      try { channel.send(JSON.stringify({ type: "session.close" })); } catch { /* Still release local capture. */ }
+    }
     channel.close(); peer.close(); stream.getTracks().forEach((track) => track.stop());
     player.pause(); player.srcObject = null; void context.close();
     options.signal.removeEventListener("abort", abort); options.onLevel(0); if (showEnded) reportStatus("ended");
+    resolveFinish?.(evidence.text()); resolveFinish = null;
   }
   const live: LiveInterview = {
-    close, userSpeech: () => userDeltas.join("").slice(0, 24000),
+    close, userSpeech: () => evidence.text(),
+    finish() {
+      if (closed) return Promise.resolve(evidence.text());
+      if (finalizing) return finalizing;
+      finalizing = new Promise<string>((resolve) => {
+        resolveFinish = resolve;
+        finishTimer = window.setTimeout(() => close(), 5000);
+        if (channel.readyState === "open") {
+          try { channel.send(JSON.stringify({ type: "session.close" })); } catch { close(); }
+        } else close();
+      });
+      return finalizing;
+    },
     pause() { if (closed || paused) return; paused = true; stream.getAudioTracks().forEach((track) => { track.enabled = false; }); player.muted = true;
       if (channel.readyState === "open") channel.send(JSON.stringify({ type: "session.input_audio.mute" })); reportStatus("paused"); },
     resume() { if (closed || !paused) return; paused = false; stream.getAudioTracks().forEach((track) => { track.enabled = true; }); player.muted = false;
@@ -65,13 +85,18 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
     };
     channel.onmessage = (event) => {
       if (closed) return;
-      let message: { type?: string; delta?: string; error?: { code?: string } };
+      let message: { type?: string; delta?: string; reason?: string; error?: { code?: string } };
       try { message = JSON.parse(String(event.data)); } catch { return; }
       if (message.type === "session.started") {
         ready = true; window.clearTimeout(readyTimer); reportStatus("listening");
         channel.send(JSON.stringify({ type: "session.commentary.append", event_id: "opening_greeting", delegation_id: null,
           content: options.openingPrompt ?? "Greet the candidate briefly as their practice interviewer. Ask one opening question about their approved professional background, then listen." }));
-      } else if (message.type === "session.input_transcript.delta" && typeof message.delta === "string") userDeltas.push(message.delta);
+      } else if (message.type === "session.input_transcript.delta" && typeof message.delta === "string") {
+        if (evidence.append(message.delta) && !evidenceLimitNotified) {
+          evidenceLimitNotified = true;
+          options.onEvidenceLimit?.();
+        }
+      }
       else if (message.type === "session.output_transcript.delta" && typeof message.delta === "string") {
         assistantSpeech = (assistantSpeech + message.delta).slice(-1000);
         window.clearTimeout(questionTimer);
@@ -84,7 +109,13 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
         };
         questionTimer = window.setTimeout(checkQuestion, 900);
       }
-      else if (message.type === "session.closed") close();
+      else if (message.type === "session.closed") {
+        const interrupted = !finalizing && message.reason && message.reason !== "close_requested";
+        close(!interrupted);
+        if (interrupted) options.onError(message.reason === "expired"
+          ? "The voice session reached its time limit. Review the speech captured so far, then start another interview."
+          : "The voice session ended unexpectedly. Review the speech captured so far, then start another interview.");
+      }
       else if (message.type === "error") { close(false); options.onError("The voice session reported an error. Please restart it."); }
     };
     peer.onconnectionstatechange = () => {

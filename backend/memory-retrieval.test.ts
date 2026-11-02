@@ -32,6 +32,19 @@ test("realistic practice questions retrieve only relevant approved facts with pr
   assert.equal(clinical[0].factId, "clinicians");
 });
 
+test("paraphrased questions distinguish decisions and collaboration within one project", () => {
+  const sharedProject = [{ projectId: "migration", title: "Atlas migration", facts: [
+    { id: "decision", text: "Chose a phased migration to reduce launch risk", source: "I chose a phased migration to reduce launch risk" },
+    { id: "collaboration", text: "Coordinated migration planning with support and engineering", source: "I coordinated migration planning with support and engineering" },
+  ] }];
+  const decision = retrieveApprovedMemory({ question: "What informed the phased migration decision?", projects: sharedProject });
+  const collaboration = retrieveApprovedMemory({ question: "How did you coordinate support and engineering during the migration?", projects: sharedProject });
+  assert.equal(decision[0].factId, "decision");
+  assert.equal(collaboration[0].factId, "collaboration");
+  assert.notEqual(decision[0].source, collaboration[0].source);
+  assert.deepEqual(retrieveApprovedMemory({ question: "Tell me about payroll audits", projects: sharedProject }), []);
+});
+
 test("unrelated, empty, and restricted assessments return no cue", () => {
   assert.deepEqual(retrieveApprovedMemory({ question: "Tell me about payroll compliance", projects }), []);
   assert.deepEqual(retrieveApprovedMemory({ question: "Tell me about API design", projects: [] }), []);

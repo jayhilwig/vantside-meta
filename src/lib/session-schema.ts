@@ -11,7 +11,7 @@ export const memoryProjectSchema = z.object({
   title: z.string().trim().min(2).max(100),
   dates: z.string().trim().min(4).max(60).optional(),
   dateSource: z.string().trim().min(4).max(180).optional(),
-  facts: z.array(memoryFactSchema).min(1).max(12),
+  facts: z.array(memoryFactSchema).min(1).max(40),
 }).strict().refine((project) => Boolean(project.dates) === Boolean(project.dateSource));
 
 export const careerProfileSchema = z.object({

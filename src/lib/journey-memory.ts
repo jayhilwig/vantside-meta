@@ -71,7 +71,8 @@ export function retainPendingFact(state: MemoryState, pending: PendingInterviewF
   next = addEvidence(next, { id: sourceId, kind: "interview", originId: pending.sessionId,
     label: "Foundational interview answer", excerpt: pending.source.trim(), capturedAt: now }, pending.answer ?? pending.source);
   const existingProject = next.career.projects.find((project) => project.title.toLowerCase() === pending.title.trim().toLowerCase());
-  next = addProposal(next, { id: pending.id, projectId: existingProject?.id ?? newMemoryId("project"), projectTitle: existingProject?.title ?? pending.title.trim(),
+  const pendingProject = next.proposals.find((proposal) => proposal.projectTitle.toLowerCase() === pending.title.trim().toLowerCase());
+  next = addProposal(next, { id: pending.id, projectId: existingProject?.id ?? pendingProject?.projectId ?? newMemoryId("project"), projectTitle: existingProject?.title ?? pendingProject?.projectTitle ?? pending.title.trim(),
     kind: "accomplishment", text: pending.text.trim(), sourceIds: [sourceId],
     originSessionId: pending.sessionId, opportunityId: pending.opportunityId, roundId: pending.roundId, proposedAt: now });
   return next;

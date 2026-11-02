@@ -6,6 +6,7 @@ import { BrandMark, OpeningSequence, PracticeApp } from "./practice-app";
 import { InterviewPracticeApp } from "./interview-practice-app";
 import { ConversationalPracticeApp } from "./conversational-practice-app";
 import { startLiveInterview, type LiveInterview, type LiveStatus } from "@/lib/live-interview";
+import { extractLiveEvidenceProposals } from "@/lib/live-evidence";
 import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, interviewEncouragement, interviewTime } from "@/lib/interview-timing";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
@@ -149,6 +150,7 @@ export function JourneyApp() {
   const liveRef = useRef<LiveInterview | null>(null);
   const endLiveRef = useRef<() => Promise<void>>(async () => {});
   const liveStartRef = useRef<AbortController | null>(null);
+  const endingLiveRef = useRef(false);
   const [liveLevel, setLiveLevel] = useState(0);
   const [liveElapsed, setLiveElapsed] = useState(0);
   const liveClockRef = useRef(emptyInterviewClock());
@@ -294,7 +296,12 @@ export function JourneyApp() {
       const live = await startLiveInterview({ microphoneId, outputId, signal: controller.signal,
         createSession: async (sdp) => post<{ sdp: string }>("/interview/live/session", { sdp, profile: approvedProfile, projects: approved }, controller.signal),
         onStatus: (status) => { setLiveStatus(status); if (status === "ended" && liveRef.current) void endLiveInterview(); }, onLevel: setLiveLevel,
-        onError: (message) => { liveRef.current = null; setInterviewError(message); setLiveStatus("error"); },
+        onError: (message) => {
+          if (liveRef.current) void endLiveInterview().then(() => setInterviewError((current) => current || `${message} Captured speech was kept for review.`));
+          else { setInterviewError(message); setLiveStatus("error"); }
+        },
+        onEvidenceLimit: () => { void endLiveRef.current().then(() => setInterviewError((current) => current ||
+          "This session reached its in-memory evidence limit. Review the captured facts, then start another interview.")); },
       });
       if (controller.signal.aborted) { live.close(); return; }
       liveRef.current = live;
@@ -311,17 +318,23 @@ export function JourneyApp() {
   }
 
   async function endLiveInterview() {
+    if (endingLiveRef.current) return;
     const live = liveRef.current;
     if (!live && !liveStartRef.current) return;
-    liveStartRef.current?.abort(); liveStartRef.current = null;
+    endingLiveRef.current = true;
+    if (!live) liveStartRef.current?.abort();
+    liveStartRef.current = null;
     liveRef.current = null;
-    const transcript = live?.userSpeech().trim() ?? "";
-    live?.close(); setLiveStatus("ended"); setLiveLevel(0);
-    const finalTime = interviewClockSeconds(advanceInterviewClock(liveClockRef.current, "ended", Date.now()), Date.now());
-    setLiveElapsed(finalTime.elapsed);
-    if (transcript.length < 10) { setInterviewError("The session ended, but no reviewable answer was captured."); return; }
-    pendingLiveTranscriptRef.current = transcript;
-    await prepareLiveProposals();
+    setReviewingLiveProposals(true);
+    try {
+      const transcript = (live ? await live.finish().catch(() => { live.close(); return live.userSpeech(); }) : "").trim();
+      setLiveStatus("ended"); setLiveLevel(0);
+      const finalTime = interviewClockSeconds(advanceInterviewClock(liveClockRef.current, "ended", Date.now()), Date.now());
+      setLiveElapsed(finalTime.elapsed);
+      if (transcript.length < 10) { setInterviewError("The session ended, but no reviewable answer was captured."); return; }
+      pendingLiveTranscriptRef.current = transcript;
+      await prepareLiveProposals();
+    } finally { endingLiveRef.current = false; setReviewingLiveProposals(false); }
   }
 
   async function prepareLiveProposals() {
@@ -330,11 +343,14 @@ export function JourneyApp() {
     const request = new AbortController(); liveProposalRequestRef.current = request;
     setCanRetryLiveProposals(false); setReviewingLiveProposals(true); setInterviewError(""); setLiveProposalResult("idle");
     try {
-      const result = await post<{ proposals: Array<Pick<MemoryProposal, "title" | "text" | "source">> }>("/interview/live/proposals", { transcript }, request.signal);
+      const extracted = await extractLiveEvidenceProposals(transcript, async (chunk) => {
+        const result = await post<{ proposals: Array<Pick<MemoryProposal, "title" | "text" | "source">> }>("/interview/live/proposals", { transcript: chunk }, request.signal);
+        return result.proposals;
+      });
       if (request.signal.aborted) return;
       const sessionId = activeSessionRef.current ?? newMemoryId("session"); activeSessionRef.current = sessionId;
       const existing = new Set([...memoryRef.current.career.facts.map((fact) => normalizeFact(fact.text)), ...memoryRef.current.proposals.map((fact) => normalizeFact(fact.text))]);
-      const candidates = result.proposals.filter((item) => { const key = normalizeFact(item.text); if (existing.has(key)) return false; existing.add(key); return true; })
+      const candidates = extracted.filter((item) => { const key = normalizeFact(item.text); if (existing.has(key)) return false; existing.add(key); return true; })
         .map((item) => ({ ...item, id: newMemoryId("fact"), sessionId, answer: item.source }));
       if (candidates.length) {
         setMemoryProposals((old) => [...old, ...candidates]);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
+import { memoryProjectSchema } from "./session-schema";
 import { addKnownInterviewer, approveInterviewBatch, approveInterviewFact, approveManualCareerFact, approveManualInterviewFact, approveResumeReview, approvedProjects, confirmOpportunity, currentReviewBatch, dismissInterviewBatch,
   pendingInterviewFacts, removeCareerProject, removeOpportunity, removeResume, retainPendingFact, saveInterviewSession } from "./journey-memory";
 
@@ -74,6 +75,40 @@ test("pending interview facts survive serialization, approval, correction-ready 
   const deduplicated = approveInterviewFact(approved, repeated, now);
   assert.equal(deduplicated.career.facts.length, 2);
   assert.equal(deduplicated.career.facts[1].sourceIds.length, 2);
+});
+
+test("distinct facts from one new project retain one project and separate evidence after approval", () => {
+  const examples = [
+    { id: "context", title: "Atlas migration", text: "Inherited an unstable migration", source: "I inherited an unstable migration" },
+    { id: "decision", title: "Atlas migration", text: "Chose a phased rollout", source: "I chose a phased rollout" },
+    { id: "collaboration", title: "Atlas migration", text: "Coordinated with support", source: "I coordinated with support" },
+  ];
+  let state = emptyMemoryState();
+  for (const item of examples) state = retainPendingFact(state, { ...item, sessionId: "session-long" }, now);
+  assert.equal(state.career.facts.length, 0);
+  assert.equal(new Set(state.proposals.map((item) => item.projectId)).size, 1);
+  state = approveInterviewBatch(state, currentReviewBatch(pendingInterviewFacts(state)), now);
+  const reopened = memoryStateSchema.parse(JSON.parse(JSON.stringify(state)));
+  assert.equal(reopened.career.projects.length, 1);
+  assert.deepEqual(reopened.career.facts.map((fact) => fact.id), examples.map((item) => item.id));
+  for (const item of examples) {
+    const fact = reopened.career.facts.find((candidate) => candidate.id === item.id)!;
+    assert.equal(fact.projectId, reopened.career.projects[0].id);
+    assert.equal(reopened.career.sources.find((source) => source.id === fact.sourceIds[0])?.excerpt, item.source);
+  }
+});
+
+test("a substantial approved project remains valid for later voice and HUD requests", () => {
+  let state = emptyMemoryState();
+  for (let index = 0; index < 13; index++) {
+    state = retainPendingFact(state, { id: `detail-${index}`, title: "Platform redesign",
+      text: `Described distinct design decision ${index} for the platform`,
+      source: `I described distinct design decision ${index} for the platform`, sessionId: "session-long" }, now);
+  }
+  state = approveInterviewBatch(state, currentReviewBatch(pendingInterviewFacts(state)), now);
+  const project = approvedProjects(memoryStateSchema.parse(JSON.parse(JSON.stringify(state))))[0];
+  assert.equal(project.facts.length, 13);
+  assert.equal(memoryProjectSchema.safeParse(project).success, true);
 });
 
 test("opportunities and interview rounds stay isolated from global memory and deletion cascades", () => {

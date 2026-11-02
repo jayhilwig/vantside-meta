@@ -91,9 +91,22 @@ test("practice transcript and remote close release the microphone and preserve i
     await new Promise((resolve) => setTimeout(resolve, 950));
     assert.deepEqual(questions, ["Tell me about your API platform design decisions?", "How did you align the teams on that decision"]);
     assert.equal(live.userSpeech(), "I designed an API platform.How did you align the teams?");
+    const finishing = live.finish();
+    assert.match(sent.at(-1) ?? "", /session.close/);
+    channel.onmessage?.({ data: JSON.stringify({ type: "session.input_transcript.delta", delta: " I coordinated the launch." }) });
     channel.onmessage?.({ data: JSON.stringify({ type: "session.closed" }) });
+    assert.equal(await finishing, "I designed an API platform.How did you align the teams? I coordinated the launch.");
     live.close();
     assert.equal(stopped, 1); assert.equal(peerClosed, 1); assert.equal(channelClosed, 1);
     assert.equal(statuses.at(-1), "ended");
+    channel.readyState = "open";
+    const errors: string[] = [];
+    const interrupted = await startLiveInterview({ signal: new AbortController().signal,
+      createSession: async () => ({ sdp: "v=0 practice answer" }), onStatus: () => {}, onLevel: () => {}, onError: (error) => errors.push(error) });
+    channel.onmessage?.({ data: JSON.stringify({ type: "session.input_transcript.delta", delta: "I led the migration planning." }) });
+    channel.onmessage?.({ data: JSON.stringify({ type: "session.closed", reason: "expired" }) });
+    assert.match(errors[0], /time limit/);
+    assert.equal(interrupted.userSpeech(), "I led the migration planning.");
+    assert.equal(stopped, 2);
   } finally { restoreNavigator(); restoreWindow(); restorePeer(); restoreAudio(); restoreContext(); }
 });
