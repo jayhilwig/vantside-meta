@@ -70,3 +70,36 @@ test("omitted empty review sections do not discard a grounded Meta response", as
   assert.deepEqual(result.body.competencies, []);
   assert.deepEqual(result.body.areas, []);
 }));
+
+test("malformed first Meta answer is retried once with identical evidence and token budget", async () => withMockMeta(async () => {
+  const sent: string[] = [];
+  const result = await reviewPractice(request, async (_url, init) => {
+    sent.push(String(init?.body));
+    return Response.json({ choices: [{ finish_reason: sent.length === 1 ? "length" : "stop", message: {
+      content: sent.length === 1 ? '{"topics":[' : JSON.stringify({ topics: [{ text: "Mapped API onboarding", quote: "I mapped the API onboarding flow" }] }),
+    } }] });
+  });
+  assert.equal(result.status, 200);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0], sent[1]);
+  assert.equal(JSON.parse(sent[0]).max_completion_tokens, 2200);
+  assert.equal(JSON.parse(sent[0]).messages[1].content.includes(request.transcript), true);
+}));
+
+test("two malformed answers preserve retryable evidence; HTTP errors do not consume another call", async () => withMockMeta(async () => {
+  let calls = 0;
+  const malformed = await reviewPractice(request, async () => {
+    calls++;
+    return Response.json({ choices: [{ message: { content: '{"topics":[' } }] });
+  });
+  assert.equal(malformed.status, 502);
+  assert.match(malformed.body.error ?? "", /answers are still available/i);
+  assert.equal(calls, 2);
+  calls = 0;
+  await reviewPractice(request, async () => { calls++; return new Response(null, { status: 503 }); });
+  assert.equal(calls, 1);
+  calls = 0;
+  const timedOut = await reviewPractice(request, async () => { calls++; throw new DOMException("mock timeout", "TimeoutError"); });
+  assert.equal(calls, 1);
+  assert.match(timedOut.body.error ?? "", /too long/);
+}));

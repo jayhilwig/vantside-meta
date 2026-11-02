@@ -72,6 +72,7 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   const [saving, setSaving] = useState(false);
   const [factNotice, setFactNotice] = useState("");
   const liveRef = useRef<LiveInterview | null>(null);
+  const endingRef = useRef<Promise<void> | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef("");
   useEffect(() => {
@@ -180,7 +181,9 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
           }
           if (next === "ended" && liveRef.current) void end(); }, onLevel: setLevel,
         onInterviewerQuestion: cueForQuestion,
-        onError: (message) => { cueRunRef.current.cancel(); void hudRef.current?.close(); setHudShown(false); liveRef.current = null; setError(message); setStatus("error"); },
+        onError: (message) => { cueRunRef.current.cancel(); void hudRef.current?.close(); setHudShown(false);
+          transcriptRef.current = liveRef.current?.userSpeech().trim() || transcriptRef.current;
+          liveRef.current = null; setError(message); setStatus("error"); },
       });
       if (controller.signal.aborted) live.close(); else liveRef.current = live;
     } catch (cause) { if (!controller.signal.aborted) { setStatus("error"); setError(cause instanceof Error ? cause.message : "Voice could not start. Check your microphone and connection."); } }
@@ -188,14 +191,20 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   }
 
   async function end() {
-    cueRunRef.current.cancel(); setCues([]); setHudQuestion(""); setHudNoMatch(false);
-    setHudShown(false); hudStartedRef.current = false; void hudRef.current?.close();
-    requestRef.current?.abort(); requestRef.current = null;
-    const live = liveRef.current; liveRef.current = null;
-    transcriptRef.current = live?.userSpeech().trim() ?? transcriptRef.current;
-    live?.close(); setLevel(0); setStatus("ended");
-    if (transcriptRef.current.length < 40) { setError("There was not enough captured speech for a grounded review. Your Career Memory is unchanged."); return; }
-    await prepareReview();
+    if (endingRef.current) return endingRef.current;
+    const ending = (async () => {
+      cueRunRef.current.cancel(); setCues([]); setHudQuestion(""); setHudNoMatch(false);
+      setHudShown(false); hudStartedRef.current = false; void hudRef.current?.close();
+      requestRef.current?.abort(); requestRef.current = null;
+      const live = liveRef.current; liveRef.current = null;
+      setStatus("reviewing"); setError("");
+      transcriptRef.current = live ? (await live.finish()).trim() : transcriptRef.current;
+      setLevel(0);
+      if (transcriptRef.current.length < 40) { setStatus("ended"); setError("There was not enough captured speech for a grounded review. Your Career Memory is unchanged."); return; }
+      await prepareReview();
+    })();
+    endingRef.current = ending;
+    try { await ending; } finally { if (endingRef.current === ending) endingRef.current = null; }
   }
 
   async function prepareReview() {

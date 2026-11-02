@@ -36,3 +36,24 @@ export function savePracticeReview(state: MemoryState, opportunityId: string, ro
   const checked = practiceReviewSchema.parse({ ...review, proposals: [] });
   return memoryStateSchema.parse({ ...state, rounds: state.rounds.map((round) => round.id === roundId ? { ...round, practiceReview: checked } : round) });
 }
+
+export const roundStatusLabels = { planned: "Upcoming", active: "In progress", completed: "Completed", cancelled: "Cancelled" } as const;
+
+export function goLiveInterviewOccurred(listeningStarted: boolean, audioQuestionRecognized: boolean): boolean {
+  return listeningStarted && audioQuestionRecognized;
+}
+
+export function updateRoundStatus(state: MemoryState, opportunityId: string, roundId: string,
+  status: MemoryState["rounds"][number]["status"], now: string): MemoryState {
+  if (!state.rounds.some((round) => round.id === roundId && round.opportunityId === opportunityId))
+    throw new Error("This interview round is no longer available.");
+  return memoryStateSchema.parse({ ...state, rounds: state.rounds.map((round) => round.id === roundId ? {
+    ...round, status, endedAt: status === "completed" ? round.endedAt ?? now : undefined,
+    startedAt: status === "active" ? round.startedAt ?? now : round.startedAt,
+  } : round) });
+}
+
+export function completeGoLiveRound(state: MemoryState, opportunityId: string, roundId: string,
+  interviewOccurred: boolean, now: string): MemoryState {
+  return interviewOccurred ? updateRoundStatus(state, opportunityId, roundId, "completed", now) : state;
+}

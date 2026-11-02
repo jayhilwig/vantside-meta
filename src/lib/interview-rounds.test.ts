@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deleteOpportunity, emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
-import { deleteRound, savePracticeReview, saveRound } from "./interview-rounds";
+import { completeGoLiveRound, deleteRound, goLiveInterviewOccurred, savePracticeReview, saveRound, updateRoundStatus } from "./interview-rounds";
 import { retainPendingFact } from "./journey-memory";
 
 test("rounds remain with their opportunities after reload and legacy records remain readable", () => {
@@ -75,4 +75,31 @@ test("deleting a round removes only its pending practice facts and leaves other 
   assert.equal(removed.proposals.length, 0);
   assert.deepEqual(removed.rounds.map((round) => round.label), ["Team"]);
   assert.equal(removed.career.sources.length, 0);
+});
+
+test("practice review leaves the round Upcoming; genuine Go Live completion persists and can be overridden", () => {
+  assert.equal(goLiveInterviewOccurred(false, false), false);
+  assert.equal(goLiveInterviewOccurred(false, true), false);
+  assert.equal(goLiveInterviewOccurred(true, false), false);
+  assert.equal(goLiveInterviewOccurred(true, true), true);
+  const now = "2026-11-02T12:00:00.000Z";
+  const state = emptyMemoryState();
+  state.opportunities = [{ id: "job-a", company: "Company A", role: "Designer", description: "Design", confirmedAt: now }];
+  const withRound = saveRound(state, "job-a", "Recruiter / HR", "", "planned", undefined, { interviewDate: "2026-11-05" });
+  const roundId = withRound.rounds[0].id;
+  const review = { topics: [], strengths: [], clarity: [], areas: [], competencies: [], proposals: [] };
+  const practiced = savePracticeReview(withRound, "job-a", roundId, review);
+  assert.equal(practiced.rounds[0].status, "planned");
+  assert.equal(completeGoLiveRound(practiced, "job-a", roundId, false, now), practiced);
+  const completed = completeGoLiveRound(practiced, "job-a", roundId, true, now);
+  const reopened = memoryStateSchema.parse(JSON.parse(JSON.stringify(completed)));
+  assert.equal(reopened.rounds[0].status, "completed");
+  assert.equal(reopened.rounds[0].endedAt, now);
+  assert.equal(reopened.rounds[0].interviewDate, "2026-11-05");
+  assert.deepEqual(reopened.rounds[0].practiceReview, practiced.rounds[0].practiceReview);
+  const upcoming = updateRoundStatus(reopened, "job-a", roundId, "planned", "2026-11-03T12:00:00.000Z");
+  assert.equal(upcoming.rounds[0].status, "planned");
+  assert.equal(upcoming.rounds[0].endedAt, undefined);
+  assert.deepEqual(upcoming.rounds[0].practiceReview, practiced.rounds[0].practiceReview);
+  assert.throws(() => updateRoundStatus(upcoming, "missing", roundId, "active", now));
 });

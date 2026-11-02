@@ -18,6 +18,7 @@ import { looksLikeInterviewQuestion, pcm16ToWavBase64, pcmLevel, SystemQuestionS
 import { goLiveAudioHealth } from "@/lib/go-live-audio-health";
 import { addSessionQuestion, dispatchGoLiveHudAction, interruptSessionQuestions, settleSessionQuestion,
   type GoLiveHudAction, type QuestionOutcome, type SessionQuestion } from "@/lib/go-live-session";
+import { goLiveInterviewOccurred } from "@/lib/interview-rounds";
 import type { MemoryProject } from "@/lib/session-schema";
 
 const api = (process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
@@ -36,8 +37,9 @@ const emptyDiagnostics = (): CaptureDiagnostics => ({ initialization: "Not start
 const outcomeLabel: Record<QuestionOutcome, string> = { processing: "Finding a cue", cue: "Career Memory cue shown",
   "no-cue": "No cue recommended", "no-match": "No relevant approved cue", unavailable: "Cue unavailable", interrupted: "Stopped before cue selection" };
 
-export function InterviewPracticeApp({ projects, opportunity, onBack }: {
+export function InterviewPracticeApp({ projects, opportunity, onBack, onCompleted }: {
   projects: MemoryProject[]; opportunity: HudOpportunity & { roundLabel?: string; interviewer?: string }; onBack: () => void;
+  onCompleted(): Promise<void>;
 }) {
   const [status, setStatus] = useState<Status>("ready");
   const [consent, setConsent] = useState(false);
@@ -71,6 +73,8 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
   const [cueNote, setCueNote] = useState("");
   const [hudDeliveryFailed, setHudDeliveryFailed] = useState(false);
   const activeRef = useRef(false);
+  const listeningStartedRef = useRef(false);
+  const questionRecognizedRef = useRef(false);
   const startingRef = useRef(false);
   const captureRef = useRef<AbortController | null>(null);
   const recorderRef = useRef<AnswerRecorder | null>(null);
@@ -346,6 +350,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
       const recorder = await startAnswerRecording(controller.signal, microphoneId || undefined);
       if (!activeRef.current || controller.signal.aborted) { recorder.discard(); return; }
       recorderRef.current = recorder;
+      listeningStartedRef.current = true;
       setStatus("listening");
       void navigator.mediaDevices.enumerateDevices().then((devices) =>
         setMicrophones(devices.filter((device) => device.kind === "audioinput"))).catch(() => undefined);
@@ -442,6 +447,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
       await start;
       if (run !== systemRunRef.current || !activeRef.current) { await stopSystemOutputCapture(); return; }
       systemCaptureRef.current = true;
+      listeningStartedRef.current = true;
       systemTickRef.current = window.setInterval(() => {
         segmenter.tick();
         if (run === systemRunRef.current) setCaptureHealth(goLiveAudioHealth(Date.now() - startedAtRef.current,
@@ -489,6 +495,8 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
     if (startingRef.current || activeRef.current || !startReady) return;
     startingRef.current = true;
     const generation = sequenceRef.current;
+    listeningStartedRef.current = false;
+    questionRecognizedRef.current = false;
     setError(""); setCueNote(""); setCues([]); setQuestion(""); setSessionQuestions([]); setHudNoMatch(false); setHudDeliveryFailed(false);
     setStatus("opening");
     try {
@@ -508,9 +516,10 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
     } finally { startingRef.current = false; }
   }
 
-  async function processQuestion(recognized: string) {
+  async function processQuestion(recognized: string, fromAudio = true) {
     const next = recognized.trim().slice(0, 500);
     if (next.length < 4 || !activeRef.current) { setStatus(inputMode === "system" ? "system-listening" : "between"); setError("No clear question was captured. Try again or type it."); return; }
+    if (fromAudio) questionRecognizedRef.current = true;
     const sequence = ++sequenceRef.current;
     let approvedCount = 0; let eligibleCount: number | null = null; let jevDecision = "";
     setSessionQuestions((current) => addSessionQuestion(interruptSessionQuestions(current), sequence, next));
@@ -593,7 +602,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
     if (!activeRef.current || recorderRef.current || requestRef.current || cueRunRef.current.running || typedQuestion.trim().length < 4) return;
     const text = typedQuestion.trim();
     setTypedQuestion("");
-    void processQuestion(text);
+    void processQuestion(text, false);
   }
 
   async function endSession() {
@@ -604,6 +613,13 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
       await stopResources(false);
       setStatus("ended"); setSessionQuestions(interruptSessionQuestions); setTypedQuestion(""); setCaptureHealth("");
       setTestedMicrophoneId(null); setTestedSpeakerId(null); setMicrophoneStatus(""); setSpeakerStatus("");
+      const completedInterview = goLiveInterviewOccurred(listeningStartedRef.current, questionRecognizedRef.current);
+      listeningStartedRef.current = false;
+      questionRecognizedRef.current = false;
+      if (completedInterview) {
+        try { await onCompleted(); }
+        catch { setError("The interview stopped, but its round status could not be saved. Update it in your interview rounds."); }
+      }
     })();
     stoppingRef.current = stopping;
     try { await stopping; } finally { if (stoppingRef.current === stopping) stoppingRef.current = null; }
@@ -639,7 +655,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack }: {
 
   const running = status !== "ready" && status !== "ended";
   return <main className="app-shell"><div className="page-wrap">
-    <header className="topbar"><button className="text-button" type="button" onClick={() => { void stopResources().finally(onBack); }}>← Four steps</button>
+    <header className="topbar"><button className="text-button" type="button" onClick={() => { void (async () => { if (activeRef.current || listeningStartedRef.current) await endSession(); await stopResources(); onBack(); })(); }}>← Four steps</button>
       <span className="brand-lockup"><BrandMark small/><span>VantSide</span></span><span className="session-pill">INTERVIEW SETUP</span></header>
     <section className="interview-v1">
       <span className="eyebrow">04 / YOUR INTERVIEW</span>

@@ -12,7 +12,7 @@ import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
 import { localApiHeaders } from "@/lib/local-api-auth";
 import { readJobPdfText } from "@/lib/job-pdf-text";
-import { deleteRound, savePracticeReview, saveRound } from "@/lib/interview-rounds";
+import { completeGoLiveRound, deleteRound, roundStatusLabels, savePracticeReview, saveRound, updateRoundStatus } from "@/lib/interview-rounds";
 import { isCurrentOperation, visibleStepError } from "@/lib/step-workflow";
 import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-schema";
 import type { OpportunityAnalysis } from "@/lib/opportunity-analysis";
@@ -32,11 +32,10 @@ function CompanyIcon({ company, logo }: { company: string; logo?: string }) {
   return <span className="company-icon">{logo ? <Image src={logo} alt="" width={32} height={32} unoptimized /> : company.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</span>;
 }
 
-function RoundCard({ round, selected, onEdit, onDelete }: { round: MemoryState["rounds"][number]; selected: boolean; onEdit(): void; onDelete(): void }) {
+function RoundCard({ round, selected, onEdit, onDelete, onStatusChange }: { round: MemoryState["rounds"][number]; selected: boolean; onEdit(): void; onDelete(): void; onStatusChange(status: MemoryState["rounds"][number]["status"]): void }) {
   return <div className="round-card"><button type="button" className={`round-item${selected ? " selected" : ""}`} aria-pressed={selected} onClick={onEdit}>
     <strong>{round.label}</strong><span className={`round-date${round.interviewDate ? "" : " empty"}`} aria-label={round.interviewDate ? `Interview date ${round.interviewDate}` : "No interview date set"}>{round.interviewDate || "--/--/----"}</span>
-    <small>{round.status === "completed" ? "Completed" : round.status === "cancelled" ? "Cancelled" : "Upcoming"}</small>
-  </button>{selected && <button type="button" className="selected-card-delete" aria-label={`Delete ${round.label} round`} onClick={onDelete}>×</button>}{(round.interviewerLinkedInUrl || round.interviewerPdf) && <div className="round-card-references">
+  </button><div className="round-status-control"><span aria-hidden="true">{round.status === "completed" ? "✓" : ""}</span><select value={round.status} aria-label={`Status for ${round.label}`} onChange={(event) => onStatusChange(event.target.value as MemoryState["rounds"][number]["status"])}>{(Object.entries(roundStatusLabels) as Array<[MemoryState["rounds"][number]["status"], string]>).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>{selected && <button type="button" className="selected-card-delete" aria-label={`Delete ${round.label} round`} onClick={onDelete}>×</button>}{(round.interviewerLinkedInUrl || round.interviewerPdf) && <div className="round-card-references">
     {round.interviewerLinkedInUrl && /^https:\/\/(?:www\.)?linkedin\.com\/in\//i.test(round.interviewerLinkedInUrl) && <a href={round.interviewerLinkedInUrl} target="_blank" rel="noopener noreferrer">LinkedIn profile ↗</a>}
     {round.interviewerPdf && <details><summary>View text from {round.interviewerPdf.name}</summary><p>{round.interviewerPdf.text}</p></details>}
   </div>}</div>;
@@ -496,6 +495,12 @@ export function JourneyApp() {
     finally { roundWriteRef.current = false; setRoundSaving(false); }
   }
 
+  async function changeRoundStatus(round: MemoryState["rounds"][number], status: MemoryState["rounds"][number]["status"]) {
+    setRoundError("");
+    try { await commitMemory((state) => updateRoundStatus(state, round.opportunityId, round.id, status, new Date().toISOString())); }
+    catch (cause) { setRoundError(cause instanceof Error ? cause.message : "Round status could not be saved."); }
+  }
+
   async function readRoundPdf(file: File | undefined) {
     if (!file) return;
     setRoundError("");
@@ -789,7 +794,9 @@ export function JourneyApp() {
     if (!selected) return <main className="app-shell"><div className="page-wrap" role="alert">The selected opportunity is no longer available. <button type="button" className="text-button" onClick={() => setPractice(null)}>Return to your steps</button></div></main>;
     return <InterviewPracticeApp projects={approved} opportunity={{ company: selected.company, role: selected.role,
       roundLabel: selectedRound?.label, interviewer: selectedRound?.interviewer,
-      requirements: selected.requirements, preparationQuestions: selected.preparationQuestions }} onBack={() => setPractice(null)} />;
+      requirements: selected.requirements, preparationQuestions: selected.preparationQuestions }} onBack={() => setPractice(null)}
+      onCompleted={async () => { if (!selectedRound) return;
+        await commitMemory((state) => completeGoLiveRound(state, selected.id, selectedRound.id, true, new Date().toISOString())); }} />;
   }
   if (practice === "voice") {
     const selected = opportunityById(memoryRef.current, activeOpportunityId);
@@ -974,7 +981,7 @@ export function JourneyApp() {
           {!memoryRef.current.opportunities.length ? <p className="detail-note">Save an opportunity in Step 3 to prepare for it here.</p> : <>
             <div className="opportunity-picker" aria-label="Saved opportunities">{memoryRef.current.opportunities.map((item) => { const itemRounds = rounds.filter((round) => round.opportunityId === item.id); const selected = activeOpportunityId === item.id; return <div className="opportunity-card" key={item.id}><button type="button" className={`opportunity-picker-item${selected ? " selected" : ""}`} aria-pressed={selected} onClick={() => selectSavedOpportunity(item.id)}><CompanyIcon company={item.company} logo={item.brandLogoDataUrl}/><strong>{item.company}</strong><span>{item.role}</span><small>{itemRounds.filter((round) => round.status === "completed").length} of {itemRounds.length} rounds completed</small></button>{selected && <button type="button" className="selected-card-delete" aria-label={`Delete ${item.role} at ${item.company}`} onClick={() => confirmDeleteOpportunity(item.id)}>×</button>}</div>; })}</div>
             {activeOpportunityId && <section className="round-setup"><h3>Interview rounds</h3>
-              <div className="round-list">{rounds.filter((round) => round.opportunityId === activeOpportunityId).map((round) => <RoundCard key={round.id} round={round} selected={selectedRoundId === round.id} onEdit={() => editRound(round)} onDelete={() => confirmDeleteRound(round)}/>)}</div>
+              <div className="round-list">{rounds.filter((round) => round.opportunityId === activeOpportunityId).map((round) => <RoundCard key={round.id} round={round} selected={selectedRoundId === round.id} onEdit={() => editRound(round)} onDelete={() => confirmDeleteRound(round)} onStatusChange={(status) => void changeRoundStatus(round, status)}/>)}</div>
               <div className="round-editor"><div className="round-fields"><label className="field-label">Who are you interviewing with?<select value={roundName} onChange={(event) => { if (event.target.value === "Other" && roundName !== "Other") setRoundCustom(""); setRoundName(event.target.value); setRoundNotice(""); }}><option value="">Choose an interview round</option>{["Recruiter / HR", "Hiring Manager", "Team Member", "Panel Interview", "Executive / Leadership", "Portfolio / Technical Interview", "Other"].map((label) => <option key={label}>{label}</option>)}</select></label><label className="field-label">Interview date (optional)<input type="date" value={roundDate} onChange={(event) => setRoundDate(event.target.value)}/></label></div><div className="round-custom-slot">{roundName === "Other" && <label className="field-label">Describe the interview<input value={roundCustom} maxLength={100} onChange={(event) => setRoundCustom(event.target.value)}/></label>}</div>
                 <details className="round-reference"><summary>Interviewer reference (optional)</summary><label className="field-label">LinkedIn profile URL<input type="url" value={roundLinkedInUrl} placeholder="https://www.linkedin.com/in/..." onChange={(event) => setRoundLinkedInUrl(event.target.value)}/></label><label className="file-button">Choose LinkedIn PDF<input type="file" accept="application/pdf,.pdf" onChange={(event) => void readRoundPdf(event.target.files?.[0])}/></label>{roundPdf && <p>{roundPdf.name} <button type="button" className="text-button" onClick={() => setRoundPdf(undefined)}>Remove PDF</button></p>}</details>
                 <div className="inline-actions">{(!selectedRoundId || roundDirty) && <button type="button" className="secondary-button" disabled={roundSaving || !roundName || (roundName === "Other" && roundCustom.trim().length < 2)} onClick={() => void submitRound()}>{roundSaving ? "Saving…" : selectedRoundId ? "Save Changes" : "Add Round"}</button>}{selectedRoundId && <button type="button" className="text-button" onClick={resetRoundEditor}>Add another round</button>}</div>{roundNotice && <p role="status" className="detail-note">{roundNotice}</p>}{roundError && <p role="alert" className="step-error">{roundError}</p>}
