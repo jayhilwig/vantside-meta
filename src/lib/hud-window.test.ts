@@ -98,6 +98,24 @@ test("a stopped session keeps its last cue visible until Close dismisses the win
   assert.deepEqual(published.at(-1), emptyHudSnapshot());
 });
 
+test("Practice Stop leaves the shared HUD visible with its last cue until Close", async () => {
+  let closes = 0;
+  const published: HudSnapshot[] = [];
+  const hud = new HudWindowController({ find: async () => null,
+    create: async () => ({ show: async () => {}, hide: async () => {}, close: async () => { closes++; } }),
+    publish: async (snapshot) => { published.push(structuredClone(snapshot)); } });
+  await hud.show();
+  await hud.publish({ status: "listening", question: "What did you build?", noMatch: false,
+    cues: [{ factId: "approved-1", projectId: "project-1", text: "Led an API redesign" }],
+    controls: { kind: "practice", canStop: true } });
+  await hud.publish({ ...published.at(-1)!, status: "stopped", controls: { kind: "practice", canStop: false } });
+  assert.equal(closes, 0);
+  assert.equal(published.at(-1)?.status, "stopped");
+  assert.equal(published.at(-1)?.cues[0]?.factId, "approved-1");
+  await hud.close();
+  assert.equal(closes, 1);
+});
+
 test("a new session waits for the previous HUD window to finish closing", async () => {
   const calls: string[] = [];
   let finishClose!: () => void;

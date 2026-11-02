@@ -91,8 +91,16 @@ test("practice transcript and remote close release the microphone and preserve i
     await new Promise((resolve) => setTimeout(resolve, 950));
     assert.deepEqual(questions, ["Tell me about your API platform design decisions?", "How did you align the teams on that decision"]);
     assert.equal(live.userSpeech(), "I designed an API platform.How did you align the teams?");
+    live.pause();
+    assert.equal(track.enabled, false);
+    assert.match(sent.at(-1) ?? "", /session.input_audio.mute/);
+    live.resume();
+    assert.equal(track.enabled, true);
+    assert.match(sent.at(-1) ?? "", /session.input_audio.unmute/);
     const finishing = live.finish();
     assert.match(sent.at(-1) ?? "", /session.close/);
+    assert.equal(stopped, 1, "ending releases the microphone before final transcript events arrive");
+    assert.equal(channelClosed, 0, "the data channel remains open briefly for final evidence");
     channel.onmessage?.({ data: JSON.stringify({ type: "session.input_transcript.delta", delta: " I coordinated the launch." }) });
     channel.onmessage?.({ data: JSON.stringify({ type: "session.closed" }) });
     assert.equal(await finishing, "I designed an API platform.How did you align the teams? I coordinated the launch.");
@@ -108,5 +116,11 @@ test("practice transcript and remote close release the microphone and preserve i
     assert.match(errors[0], /time limit/);
     assert.equal(interrupted.userSpeech(), "I led the migration planning.");
     assert.equal(stopped, 2);
+    channel.readyState = "open";
+    const closedFromHud = await startLiveInterview({ signal: new AbortController().signal,
+      createSession: async () => ({ sdp: "v=0 practice answer" }), onStatus: () => {}, onLevel: () => {}, onError: () => {} });
+    closedFromHud.close(); closedFromHud.close();
+    assert.equal(stopped, 3, "closing an active HUD session releases its microphone exactly once");
+    assert.equal(channelClosed, 3);
   } finally { restoreNavigator(); restoreWindow(); restorePeer(); restoreAudio(); restoreContext(); }
 });

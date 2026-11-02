@@ -30,7 +30,7 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
   const micSamples = new Uint8Array(micAnalyser.fftSize);
   let outputAnalyser: AnalyserNode | null = null;
   let outputSamples: Uint8Array<ArrayBuffer> | null = null;
-  let closed = false; let paused = false; let ready = false; let timer = 0; let readyTimer = 0; let questionTimer = 0; let finishTimer = 0;
+  let closed = false; let mediaStopped = false; let paused = false; let ready = false; let timer = 0; let readyTimer = 0; let questionTimer = 0; let finishTimer = 0;
   let finalizing: Promise<string> | null = null;
   let resolveFinish: ((text: string) => void) | null = null;
   let evidenceLimitNotified = false;
@@ -40,15 +40,21 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
   const reportStatus = (status: LiveStatus) => { if (status !== displayedStatus) { displayedStatus = status; options.onStatus(status); } };
   const abort = () => close();
   options.signal.addEventListener("abort", abort, { once: true });
+  function stopMedia() {
+    if (mediaStopped) return;
+    mediaStopped = true;
+    window.clearInterval(timer); window.clearTimeout(questionTimer);
+    stream.getTracks().forEach((track) => track.stop());
+    player.pause(); player.srcObject = null; options.onLevel(0);
+  }
   function close(showEnded = true) {
     if (closed) return;
     closed = true; window.clearInterval(timer); window.clearTimeout(readyTimer); window.clearTimeout(questionTimer); window.clearTimeout(finishTimer);
     if (channel.readyState === "open" && !finalizing) {
       try { channel.send(JSON.stringify({ type: "session.close" })); } catch { /* Still release local capture. */ }
     }
-    channel.close(); peer.close(); stream.getTracks().forEach((track) => track.stop());
-    player.pause(); player.srcObject = null; void context.close();
-    options.signal.removeEventListener("abort", abort); options.onLevel(0); if (showEnded) reportStatus("ended");
+    channel.close(); peer.close(); stopMedia(); void context.close();
+    options.signal.removeEventListener("abort", abort); if (showEnded) reportStatus("ended");
     resolveFinish?.(evidence.text()); resolveFinish = null;
   }
   const live: LiveInterview = {
@@ -63,6 +69,7 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
           try { channel.send(JSON.stringify({ type: "session.close" })); } catch { close(); }
         } else close();
       });
+      stopMedia();
       return finalizing;
     },
     pause() { if (closed || paused) return; paused = true; stream.getAudioTracks().forEach((track) => { track.enabled = false; }); player.muted = true;
@@ -99,6 +106,7 @@ export async function startLiveInterview(options: Options): Promise<LiveIntervie
         }
       }
       else if (message.type === "session.output_transcript.delta" && typeof message.delta === "string") {
+        if (finalizing) return;
         assistantSpeech = (assistantSpeech + message.delta).slice(-1000);
         window.clearTimeout(questionTimer);
         const checkQuestion = () => {

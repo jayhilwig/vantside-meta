@@ -3,8 +3,11 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { HudFact } from "./interview-hud-pipeline";
 
 export type HudSessionStatus = "ready" | "listening" | "processing" | "paused" | "stopped";
+export type HudControls =
+  | { kind: "go-live"; automatic: boolean; startAllowed: boolean; startHint: string }
+  | { kind: "practice"; canStop: boolean };
 export type HudSnapshot = { status: HudSessionStatus; question: string; cues: HudFact[]; noMatch: boolean;
-  controls?: { kind: "go-live"; automatic: boolean; startAllowed: boolean; startHint: string } };
+  controls?: HudControls };
 export const emptyHudSnapshot = (): HudSnapshot => ({ status: "ready", question: "", cues: [], noMatch: false });
 
 export interface HudWindowHandle { show(): Promise<void>; hide(): Promise<void>; close(): Promise<void> }

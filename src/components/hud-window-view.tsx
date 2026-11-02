@@ -8,14 +8,13 @@ import { emptyHudSnapshot, type HudSnapshot, type HudSessionStatus } from "@/lib
 import { HudFacts } from "./hud-facts";
 import { HudVisibilityIcon } from "./hud-visibility-icon";
 import type { GoLiveHudAction } from "@/lib/go-live-session";
+import { HudCommandGate, hudControlPresentation } from "@/lib/hud-session-controls";
 
 export function HudWindowView() {
   const [snapshot, setSnapshot] = useState<HudSnapshot>(emptyHudSnapshot);
   const [commandPending, setCommandPending] = useState(false);
   const [commandError, setCommandError] = useState("");
-  const commandPendingRef = useRef(false);
-  const closeSentRef = useRef(false);
-  const goLiveRef = useRef(false);
+  const commandGate = useRef(new HudCommandGate());
   useEffect(() => {
     if (snapshot.cues.length) void emitTo("main", "vantside-hud-rendered", { count: snapshot.cues.length });
   }, [snapshot.cues]);
@@ -28,21 +27,20 @@ export function HudWindowView() {
       const statuses: HudSessionStatus[] = ["ready", "listening", "processing", "paused", "stopped"];
       const cues: HudFact[] = payload.cues.slice(0, 3).filter((cue) => typeof cue.factId === "string" &&
         typeof cue.projectId === "string" && typeof cue.text === "string" && cue.text.length <= 110);
-      commandPendingRef.current = false; setCommandPending(false);
-      goLiveRef.current = payload.controls?.kind === "go-live";
+      commandGate.current.settled(); setCommandPending(false);
       setSnapshot({ status: statuses.includes(payload.status as HudSessionStatus) ? payload.status as HudSessionStatus : "ready",
         question: typeof payload.question === "string" ? payload.question.slice(0, 500) : "",
         cues, noMatch: payload.noMatch === true && cues.length === 0,
         controls: payload.controls?.kind === "go-live" ? { kind: "go-live", automatic: payload.controls.automatic === true,
           startAllowed: payload.controls.startAllowed === true,
-          startHint: typeof payload.controls.startHint === "string" ? payload.controls.startHint.slice(0, 120) : "" } : undefined });
+          startHint: typeof payload.controls.startHint === "string" ? payload.controls.startHint.slice(0, 120) : "" }
+          : payload.controls?.kind === "practice" ? { kind: "practice", canStop: payload.controls.canStop === true } : undefined });
     }).then((stop) => {
       if (disposed) { stop(); return; }
       unlisten = stop;
       void emitTo("main", "vantside-hud-ready");
     });
-    void getCurrentWindow().onCloseRequested(async () => { await emitTo("main", goLiveRef.current ? "vantside-hud-command" : "vantside-hud-hidden",
-      goLiveRef.current ? { action: "close" } : undefined); })
+    void getCurrentWindow().onCloseRequested(async () => { await emitTo("main", "vantside-hud-command", { action: "close" }); })
       .then((stop) => { if (disposed) stop(); else unlistenClose = stop; });
     return () => { disposed = true; unlisten?.(); unlistenClose?.(); };
   }, []);
@@ -53,11 +51,10 @@ export function HudWindowView() {
   }
 
   async function sendCommand(action: GoLiveHudAction) {
-    if (action === "close" ? closeSentRef.current : commandPendingRef.current) return;
-    if (action === "close") closeSentRef.current = true;
-    commandPendingRef.current = true; setCommandPending(true); setCommandError("");
+    if (!commandGate.current.begin(action)) return;
+    setCommandPending(true); setCommandError("");
     try { await emitTo("main", "vantside-hud-command", { action }); }
-    catch { commandPendingRef.current = false; closeSentRef.current = false; setCommandPending(false); setCommandError("VantSide could not receive this control. Use the main window."); }
+    catch { commandGate.current.failed(); setCommandPending(false); setCommandError("VantSide could not receive this control. Use the main window."); }
   }
 
   async function moveWithKeyboard(event: KeyboardEvent<HTMLButtonElement>) {
@@ -69,6 +66,7 @@ export function HudWindowView() {
     await window.setPosition(new PhysicalPosition(position.x + change[0], position.y + change[1]));
   }
 
+  const controlPresentation = hudControlPresentation(snapshot);
   return <main className="hud-root" aria-label="Career Memory HUD">
     <div className="hud-surface">
       <div className="hud-header"><strong>VantSide</strong><span className={`hud-status ${snapshot.status}`} role="status"><i aria-hidden="true"/>{({ ready: "Ready", listening: "Listening", processing: "Processing", paused: "Paused", stopped: "Stopped" } as const)[snapshot.status]}</span></div>
@@ -78,14 +76,11 @@ export function HudWindowView() {
         <span aria-hidden="true"><i/><i/><i/><i/><i/><i/></span>
       </button>
       <div className="hud-window-actions"><button type="button" className="hud-hide" onClick={() => void hide()} aria-label="Hide HUD" title="Hide HUD"><HudVisibilityIcon hidden/></button>
-        {snapshot.controls?.kind === "go-live" && <button type="button" className="hud-close" onClick={() => void sendCommand("close")} aria-label="Close HUD and stop listening" title="Close HUD">×</button>}</div>
-      {snapshot.controls?.kind === "go-live" && snapshot.controls.automatic && <div className="hud-session-controls">
-        {snapshot.status === "ready" && <><button type="button" className="hud-start" disabled={!snapshot.controls.startAllowed || commandPending} onClick={() => void sendCommand("start")}>Start Listening</button>
-          {!snapshot.controls.startAllowed && <span className="hud-control-note">{snapshot.controls.startHint || "Complete setup in VantSide."}</span>}</>}
-        {snapshot.status === "listening" && <><button type="button" disabled={commandPending} onClick={() => void sendCommand("pause")}>Pause</button><button type="button" disabled={commandPending} onClick={() => void sendCommand("stop")}>Stop</button></>}
-        {snapshot.status === "paused" && <><button type="button" className="hud-start" disabled={commandPending} onClick={() => void sendCommand("resume")}>Resume</button><button type="button" disabled={commandPending} onClick={() => void sendCommand("stop")}>Stop</button></>}
-        {snapshot.status === "processing" && <><span className="hud-control-note">Processing…</span><button type="button" disabled={commandPending} onClick={() => void sendCommand("stop")}>Stop</button></>}
-        {snapshot.status === "stopped" && <span className="hud-control-note">Listening stopped</span>}
+        {snapshot.controls && <button type="button" className="hud-close" onClick={() => void sendCommand("close")} aria-label="Close HUD and end active session" title="Close HUD">×</button>}</div>
+      {snapshot.controls && <div className="hud-session-controls">
+        {controlPresentation.buttons.map((button) => <button key={button.action} type="button" className={button.primary ? "hud-start" : undefined}
+          disabled={commandPending || button.disabled} onClick={() => void sendCommand(button.action)}>{button.label}</button>)}
+        {controlPresentation.note && <span className="hud-control-note">{controlPresentation.note}</span>}
       </div>}
       {commandError && <p className="hud-command-error" role="alert">{commandError}</p>}
       {snapshot.question && <div className="hud-question"><span>QUESTION HEARD</span><p>{snapshot.question}</p></div>}

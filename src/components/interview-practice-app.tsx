@@ -6,12 +6,13 @@ import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { BrandMark } from "./practice-app";
 import { HudVisibilityIcon } from "./hud-visibility-icon";
+import { HudMinimizeGuidance } from "./hud-minimize-guidance";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
 import { goLiveReady } from "@/lib/device-preflight";
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
 import { startAnswerRecording, type AnswerRecorder } from "@/lib/record-answer";
 import { questionToHud, type HudFact, type HudOpportunity } from "@/lib/interview-hud-pipeline";
-import { HudWindowController, emptyHudSnapshot, tauriHudPort, type HudSessionStatus } from "@/lib/hud-window";
+import { HudWindowController, tauriHudPort, type HudSessionStatus, type HudSnapshot } from "@/lib/hud-window";
 import { LatestQuestion } from "@/lib/latest-question";
 import { listSystemOutputs, startSystemOutputCapture, stopSystemOutputCapture, type SystemOutput } from "@/lib/system-output-capture";
 import { looksLikeInterviewQuestion, pcm16ToWavBase64, pcmLevel, SystemQuestionSegmenter } from "@/lib/system-question-segmenter";
@@ -106,6 +107,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
   const systemSegmenterRef = useRef<SystemQuestionSegmenter | null>(null);
   const pendingSystemAudioRef = useRef<Int16Array | null>(null);
   const hudRef = useRef<HudWindowController | null>(null);
+  const hudSnapshotRef = useRef<HudSnapshot | null>(null);
   const hudCommandRef = useRef<(action: GoLiveHudAction) => void>(() => undefined);
   const stoppingRef = useRef<Promise<void> | null>(null);
   const closingHudRef = useRef<Promise<void> | null>(null);
@@ -116,10 +118,12 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
 
   useEffect(() => {
     let current = true;
-    void hudRef.current?.publish({ status: hudStatus(status), question, cues, noMatch: hudNoMatch,
+    const snapshot: HudSnapshot = { status: hudStatus(status), question, cues, noMatch: hudNoMatch,
       controls: { kind: "go-live", automatic: inputMode === "system", startAllowed: status === "ready" && inputMode === "system" && startReady,
         startHint: !consent ? "Confirm consent in VantSide." : !systemOutputId ? "Choose a Windows output in VantSide." :
-          inputMode !== "system" ? "Start this input mode in VantSide." : "Complete setup in VantSide." } })
+          inputMode !== "system" ? "Start this input mode in VantSide." : "Complete setup in VantSide." } };
+    hudSnapshotRef.current = snapshot;
+    void hudRef.current?.publish(snapshot)
       .then(() => { if (current && hudShown && cues.length) setDiagnostics((old) => ({ ...old,
         hud: old.hud.endsWith("rendered") ? old.hud : "Cue event sent, awaiting HUD" })); })
       .catch(() => { if (current) { setHudDeliveryFailed(true);
@@ -501,7 +505,8 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
     setStatus("opening");
     try {
       if (!isTauri()) throw new Error("Open the VantSide desktop app to use the floating HUD.");
-      await hudRef.current!.publish(emptyHudSnapshot());
+      await hudRef.current!.publish({ status: "processing", question: "", cues: [], noMatch: false,
+        controls: { kind: "go-live", automatic: inputMode === "system", startAllowed: false, startHint: "" } });
       await hudRef.current!.show();
       if (generation !== sequenceRef.current) return;
       activeRef.current = true;
@@ -511,6 +516,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
       else setStatus("between");
     } catch (cause) {
       await stopResources();
+      setHudShown(false);
       setStatus("ready");
       setError(cause instanceof Error ? cause.message : "The interview could not start.");
     } finally { startingRef.current = false; }
@@ -642,10 +648,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
     try {
       if (hudShown) { await hudRef.current?.hide(); setHudShown(false); }
       else {
-        if (!activeRef.current) {
-          setStatus("ready"); setQuestion(""); setCues([]); setHudNoMatch(false);
-          await hudRef.current?.publish(emptyHudSnapshot());
-        }
+        if (hudSnapshotRef.current) await hudRef.current?.publish(hudSnapshotRef.current);
         await hudRef.current?.show();
         if (run !== hudRunRef.current) return;
         setHudShown(true); setHudDeliveryFailed(false);
@@ -687,6 +690,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
             <button type="button" className="text-button hud-toggle-main" disabled={status === "ending" || status === "opening"} onClick={() => void toggleHud()}><HudVisibilityIcon hidden={hudShown}/>{hudShown ? "Hide HUD" : "Show HUD"}</button>
           </div></>}
       </div>
+      <HudMinimizeGuidance open={hudShown}/>
       {error && <p className="step-error" role="alert">{error}</p>}
       {inputMode === "system" && running && captureHealth && <p className="step-error" role="status">{captureHealth}</p>}
       {inputMode === "system" && status !== "ready" && <details className="go-live-diagnostics"><summary>Listening diagnostics</summary><dl>
