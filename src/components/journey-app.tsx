@@ -33,7 +33,7 @@ function CompanyIcon({ company, logo }: { company: string; logo?: string }) {
 
 function RoundCard({ round, selected, onEdit, onDelete }: { round: MemoryState["rounds"][number]; selected: boolean; onEdit(): void; onDelete(): void }) {
   return <div className="round-card"><button type="button" className={`round-item${selected ? " selected" : ""}`} aria-pressed={selected} onClick={onEdit}>
-    <strong>{round.label}</strong>{round.interviewDate && <span>{round.interviewDate}</span>}
+    <strong>{round.label}</strong><span className={`round-date${round.interviewDate ? "" : " empty"}`} aria-label={round.interviewDate ? `Interview date ${round.interviewDate}` : "No interview date set"}>{round.interviewDate || "--/--/----"}</span>
     <small>{round.status === "completed" ? "Completed" : round.status === "cancelled" ? "Cancelled" : "Upcoming"}</small>
   </button>{selected && <button type="button" className="selected-card-delete" aria-label={`Delete ${round.label} round`} onClick={onDelete}>×</button>}{(round.interviewerLinkedInUrl || round.interviewerPdf) && <div className="round-card-references">
     {round.interviewerLinkedInUrl && /^https:\/\/(?:www\.)?linkedin\.com\/in\//i.test(round.interviewerLinkedInUrl) && <a href={round.interviewerLinkedInUrl} target="_blank" rel="noopener noreferrer">LinkedIn profile ↗</a>}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { questionToHud } from "./interview-hud-pipeline";
+import { questionToHud, type HudPipelineStage } from "./interview-hud-pipeline";
 import { LatestQuestion } from "./latest-question";
 
 const projects = [{ projectId: "platform", title: "Developer platform", facts: [
@@ -13,7 +13,9 @@ const question = "How did you design API platform onboarding?";
 
 test("completed question uses Jev then Meta to select only approved, opportunity-relevant source IDs", async () => {
   const routes: string[] = [];
-  const result = await questionToHud({ question, projects, opportunity, recentFactIds: [], signal: new AbortController().signal }, async (url, init) => {
+  const stages: HudPipelineStage[] = [];
+  const result = await questionToHud({ question, projects, opportunity, recentFactIds: [], signal: new AbortController().signal,
+    onStage: (event) => stages.push(event) }, async (url, init) => {
     routes.push(String(url));
     const body = JSON.parse(String(init?.body));
     assert.deepEqual(body.opportunity, opportunity);
@@ -25,6 +27,17 @@ test("completed question uses Jev then Meta to select only approved, opportunity
   });
   assert.deepEqual(routes.map((route) => route.split("/").at(-1)), ["decide-hud-cue", "cue"]);
   assert.deepEqual(result.cues, [{ factId: "api-flow", projectId: "platform", text: projects[0].facts[0].text }]);
+  assert.deepEqual(stages, [{ stage: "approved", count: 2 }, { stage: "jev", decision: "show" },
+    { stage: "eligible", count: 1 }, { stage: "meta", decision: "verified" }]);
+});
+
+test("no approved evidence stops before Jev or Meta and exposes the stage", async () => {
+  const stages: HudPipelineStage[] = [];
+  const result = await questionToHud({ question, projects: [], opportunity, recentFactIds: [],
+    signal: new AbortController().signal, onStage: (event) => stages.push(event) },
+  async () => { assert.fail("No provider request is needed without approved facts"); });
+  assert.equal(result.reason, "no-match");
+  assert.deepEqual(stages, [{ stage: "approved", count: 0 }]);
 });
 
 test("Go Live sends only supported opportunity fields to the strict cue endpoint", async () => {

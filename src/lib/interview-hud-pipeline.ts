@@ -7,12 +7,17 @@ export type HudFact = { factId: string; projectId: string; text: string };
 export type HudOpportunity = { company: string; role: string; requirements?: OpportunityRequirement[]; preparationQuestions?: string[] };
 export type HudResult = { question: string; cues: HudFact[]; reason: "shown" | "no-match" | "irrelevant" | "unavailable" };
 
-type Input = { question: string; projects: MemoryProject[]; opportunity: HudOpportunity; recentFactIds: string[]; signal: AbortSignal };
+export type HudPipelineStage = { stage: "approved" | "jev" | "eligible" | "meta"; count?: number; decision?: string };
+type Input = { question: string; projects: MemoryProject[]; opportunity: HudOpportunity; recentFactIds: string[]; signal: AbortSignal;
+  onStage?: (event: HudPipelineStage) => void };
 
 export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
   baseUrl = process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787"): Promise<HudResult> {
   const question = input.question.trim().slice(0, 500);
   if (question.length < 4) return { question, cues: [], reason: "no-match" };
+  const approvedCount = input.projects.reduce((count, project) => count + project.facts.filter((fact) => fact.source.trim()).length, 0);
+  input.onStage?.({ stage: "approved", count: approvedCount });
+  if (!approvedCount) return { question, cues: [], reason: "no-match" };
   // Round labels belong to the session UI; the strict cue endpoint accepts only opportunity memory.
   const opportunity: HudOpportunity = { company: input.opportunity.company, role: input.opportunity.role,
     requirements: input.opportunity.requirements, preparationQuestions: input.opportunity.preparationQuestions };
@@ -28,6 +33,7 @@ export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
   const decision = await post("/decide-hud-cue", { question, projects: input.projects,
     opportunity, recentFactIds: input.recentFactIds.slice(-10) }) as {
       show?: boolean; reason?: string; cues?: Array<{ factId?: string; projectId?: string }> };
+  input.onStage?.({ stage: "jev", decision: decision?.show ? "show" : decision?.reason ?? "no cue" });
   if (!decision || !decision.show) return { question, cues: [], reason: decision?.reason === "unavailable" ? "unavailable" : decision?.reason === "irrelevant" ? "irrelevant" : "no-match" };
 
   const eligible = new Set((Array.isArray(decision.cues) ? decision.cues : []).slice(0, 3).flatMap((candidate) => {
@@ -38,11 +44,13 @@ export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
   }));
   const selected = input.projects.map((project) => ({ ...project,
     facts: project.facts.filter((fact) => eligible.has(fact.id)) })).filter((project) => project.facts.length);
+  input.onStage?.({ stage: "eligible", count: eligible.size });
   if (!selected.length) return { question, cues: [], reason: "no-match" };
 
   const result = await post("/cue", { question, projects: selected, opportunity }) as { cue?: unknown };
   const parsed = personalCueSchema(selected).safeParse(result.cue);
   if (!parsed.success) throw new Error("The cue could not be verified. Continue practicing or try another question.");
+  input.onStage?.({ stage: "meta", decision: parsed.data.match });
   if (parsed.data.match === "none") return { question, cues: [], reason: "no-match" };
   const cues = parsed.data.sourceFactIds.flatMap((factId) => selected.flatMap((project) =>
     project.facts.filter((fact) => fact.id === factId && project.projectId === parsed.data.projectId)

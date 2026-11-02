@@ -1,9 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { looksLikeInterviewQuestion, pcm16ToWavBase64, SystemQuestionSegmenter } from "./system-question-segmenter";
+import { looksLikeInterviewQuestion, pcm16ToWavBase64, pcmLevel, SystemQuestionSegmenter } from "./system-question-segmenter";
+import { goLiveAudioHealth } from "./go-live-audio-health";
 
 const speech = new Int16Array(2_400).fill(8_000);
 const quiet = new Int16Array(2_400);
+
+test("output diagnostics distinguish route silence from speech awaiting a boundary", () => {
+  assert.equal(pcmLevel(quiet), 0);
+  assert.ok(pcmLevel(speech) > 0.009);
+  assert.match(goLiveAudioHealth(4_000, 0, false, 0), /No playback audio/);
+  assert.match(goLiveAudioHealth(4_000, 4, false, 0), /no speech was detected/);
+  assert.match(goLiveAudioHealth(4_000, 4, true, 0), /Waiting for a pause/);
+  assert.equal(goLiveAudioHealth(4_000, 4, true, 1, 200), "");
+  assert.match(goLiveAudioHealth(8_000, 4, true, 1, 4_000), /No playback audio/);
+});
 
 test("short noise and silence do not produce a transcription segment", () => {
   const segments: Int16Array[] = [];

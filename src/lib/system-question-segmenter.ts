@@ -11,12 +11,14 @@ export class SystemQuestionSegmenter {
   private lastVoiceAt = 0;
 
   constructor(private readonly onSegment: (pcm: Int16Array) => void,
-    private readonly onTooLong: () => void) {}
+    private readonly onTooLong: () => void,
+    private readonly onActivity?: (level: number, voiced: boolean) => void) {}
 
   push(chunk: Int16Array, now = Date.now()) {
     if (!chunk.length) return;
-    const rms = Math.sqrt(chunk.reduce((sum, value) => sum + (value / 32768) ** 2, 0) / chunk.length);
+    const rms = pcmLevel(chunk);
     const voiced = rms >= 0.009;
+    this.onActivity?.(rms, voiced);
     if (!this.speech.length && !voiced) {
       this.before.push(...chunk);
       if (this.before.length > RATE / 4) this.before.splice(0, this.before.length - RATE / 4);
@@ -37,6 +39,11 @@ export class SystemQuestionSegmenter {
   }
 
   reset() { this.before = []; this.speech = []; this.voicedSamples = 0; this.lastVoiceAt = 0; }
+}
+
+export function pcmLevel(samples: Int16Array): number {
+  if (!samples.length) return 0;
+  return Math.sqrt(samples.reduce((sum, value) => sum + (value / 32768) ** 2, 0) / samples.length);
 }
 
 export function looksLikeInterviewQuestion(transcript: string): boolean {
