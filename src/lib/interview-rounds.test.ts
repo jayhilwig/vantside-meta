@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deleteOpportunity, emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
-import { completeGoLiveRound, deleteRound, goLiveInterviewOccurred, savePracticeReview, saveRound, updateRoundStatus } from "./interview-rounds";
+import { completeGoLiveRound, deleteRound, goLiveInterviewOccurred, practiceInterviewOccurred, savePracticeReview, saveRound, updateRoundStatus } from "./interview-rounds";
 import { retainPendingFact } from "./journey-memory";
 
 test("rounds remain with their opportunities after reload and legacy records remain readable", () => {
@@ -77,7 +77,15 @@ test("deleting a round removes only its pending practice facts and leaves other 
   assert.equal(removed.career.sources.length, 0);
 });
 
-test("practice review leaves the round Upcoming; genuine Go Live completion persists and can be overridden", () => {
+test("only a normally ended practice session with finalized speech completes its round", () => {
+  const speech = "I led the project, worked with research and engineering, and improved the onboarding experience.";
+  assert.equal(practiceInterviewOccurred(true, true, speech), true);
+  assert.equal(practiceInterviewOccurred(true, false, speech), false);
+  assert.equal(practiceInterviewOccurred(false, true, speech), false);
+  assert.equal(practiceInterviewOccurred(true, true, "I just started."), false);
+});
+
+test("practice and genuine Go Live completion persist; manual Upcoming override preserves review", () => {
   assert.equal(goLiveInterviewOccurred(false, false), false);
   assert.equal(goLiveInterviewOccurred(false, true), false);
   assert.equal(goLiveInterviewOccurred(true, false), false);
@@ -90,6 +98,9 @@ test("practice review leaves the round Upcoming; genuine Go Live completion pers
   const review = { topics: [], strengths: [], clarity: [], areas: [], competencies: [], proposals: [] };
   const practiced = savePracticeReview(withRound, "job-a", roundId, review);
   assert.equal(practiced.rounds[0].status, "planned");
+  const practiceCompleted = updateRoundStatus(practiced, "job-a", roundId, "completed", now);
+  assert.equal(practiceCompleted.rounds[0].status, "completed");
+  assert.deepEqual(practiceCompleted.rounds[0].practiceReview, review);
   assert.equal(completeGoLiveRound(practiced, "job-a", roundId, false, now), practiced);
   const completed = completeGoLiveRound(practiced, "job-a", roundId, true, now);
   const reopened = memoryStateSchema.parse(JSON.parse(JSON.stringify(completed)));

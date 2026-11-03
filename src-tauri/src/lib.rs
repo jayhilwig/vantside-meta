@@ -4,10 +4,20 @@ mod system_loopback;
 use tauri::Manager;
 
 #[tauri::command]
-fn read_local_api_token(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<String, String> {
-    if window.label() != "main" { return Err("Local API access is unavailable in this window.".into()); }
-    let path = app.path().app_local_data_dir().map_err(|_| "App data is unavailable.")?.join("local-api-token");
-    let token = std::fs::read_to_string(path).map_err(|_| "Start the local backend, then try again.")?;
+fn read_local_api_token(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<String, String> {
+    if window.label() != "main" {
+        return Err("Local API access is unavailable in this window.".into());
+    }
+    let path = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| "App data is unavailable.")?
+        .join("local-api-token");
+    let token =
+        std::fs::read_to_string(path).map_err(|_| "Start the local backend, then try again.")?;
     let token = token.trim();
     if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("Local API authorization needs repair.".into());
@@ -30,13 +40,19 @@ pub fn run() {
             read_local_api_token,
             career_store::load_career_memory,
             career_store::save_career_memory,
+            career_store::load_prepared_hud_cues,
+            career_store::save_prepared_hud_cues,
             system_loopback::list_system_outputs,
             system_loopback::start_system_output_capture,
             system_loopback::stop_system_output_capture
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
-                system_loopback::stop_all(&window.app_handle().state::<system_loopback::SystemLoopbackState>());
+                system_loopback::stop_all(
+                    &window
+                        .app_handle()
+                        .state::<system_loopback::SystemLoopbackState>(),
+                );
                 if let Some(hud) = window.app_handle().get_webview_window("hud") {
                     let _ = hud.close();
                 }

@@ -43,6 +43,10 @@ export function goLiveInterviewOccurred(listeningStarted: boolean, audioQuestion
   return listeningStarted && audioQuestionRecognized;
 }
 
+export function practiceInterviewOccurred(endedNormally: boolean, connected: boolean, finalizedSpeech: string): boolean {
+  return endedNormally && connected && finalizedSpeech.trim().length >= 40;
+}
+
 export function updateRoundStatus(state: MemoryState, opportunityId: string, roundId: string,
   status: MemoryState["rounds"][number]["status"], now: string): MemoryState {
   if (!state.rounds.some((round) => round.id === roundId && round.opportunityId === opportunityId))

@@ -46,6 +46,8 @@ Practice for a specific interview round. Voice interaction uses the professional
 
 In the intended product, user-approved reusable career facts persist globally after each round; company or round-specific context stays with that opportunity. If the job doesn't work out, the professional memory remains useful for the next one. The current build has saved opportunity rounds, personalized text cues, and a conversational GPT-Live practice path using the selected opportunity and round. A post-session Meta review uses captured user speech to suggest topics, strengths, areas to practice, and pending facts. Sparse or missing transcript evidence produces no invented feedback. The practice voice path still needs manual Windows/Tauri verification; full transcripts and raw audio remain session-only.
 
+The Step 4 implementation prepares brief, extractive cues from approved facts before Practice or Go Live starts. Valid cues are reused from local SQLite; Jev still chooses which approved facts belong in the HUD for each question. If preparation fails, the session can proceed using complete source-derived excerpts. Windows timing and display behavior remain to be verified manually.
+
 ## Memory model
 
 - **Career Memory (global):** Approved projects, roles, accomplishments, decisions, skills, stories and supporting sources; reusable across opportunities. Reviewed facts persist in the desktop app's local database.

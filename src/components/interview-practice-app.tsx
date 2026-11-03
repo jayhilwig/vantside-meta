@@ -12,7 +12,7 @@ import { goLiveReady } from "@/lib/device-preflight";
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
 import { startAnswerRecording, type AnswerRecorder } from "@/lib/record-answer";
 import { questionToHud, type HudFact, type HudOpportunity } from "@/lib/interview-hud-pipeline";
-import { HudWindowController, tauriHudPort, type HudSessionStatus, type HudSnapshot } from "@/lib/hud-window";
+import { HudWindowController, tauriHudPort, type HudCueState, type HudSessionStatus, type HudSnapshot } from "@/lib/hud-window";
 import { LatestQuestion } from "@/lib/latest-question";
 import { listSystemOutputs, startSystemOutputCapture, stopSystemOutputCapture, type SystemOutput } from "@/lib/system-output-capture";
 import { looksLikeInterviewQuestion, pcm16ToWavBase64, pcmLevel, SystemQuestionSegmenter } from "@/lib/system-question-segmenter";
@@ -21,6 +21,9 @@ import { addSessionQuestion, dispatchGoLiveHudAction, interruptSessionQuestions,
   type GoLiveHudAction, type QuestionOutcome, type SessionQuestion } from "@/lib/go-live-session";
 import { goLiveInterviewOccurred } from "@/lib/interview-rounds";
 import type { MemoryProject } from "@/lib/session-schema";
+import { hudCuePreparer, liveMetaCueQa } from "@/lib/hud-cue-preparation-port";
+import { hudPreparationAllowsStart, type HudPreparationState, type PreparedCueMap } from "@/lib/hud-cue-preparation";
+import { HudPreparationStatus } from "./hud-preparation-status";
 
 const api = (process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 type Status = "ready" | "opening" | "permission" | "listening" | "system-listening" | "paused" | "transcribing" | "finding" | "between" | "ending" | "ended";
@@ -68,7 +71,10 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
   const [sessionQuestions, setSessionQuestions] = useState<SessionQuestion[]>([]);
   const [typedQuestion, setTypedQuestion] = useState("");
   const [cues, setCues] = useState<HudFact[]>([]);
-  const [hudNoMatch, setHudNoMatch] = useState(false);
+  const [hudCueState, setHudCueState] = useState<HudCueState>("idle");
+  const [preparedState, setPreparedState] = useState<{ projects: MemoryProject[]; state: HudPreparationState } | null>(null);
+  const preparation: HudPreparationState = liveMetaCueQa ? "ready" : preparedState?.projects === projects ? preparedState.state : "preparing";
+  const preparedCuesRef = useRef<PreparedCueMap>({});
   const [hudShown, setHudShown] = useState(false);
   const [error, setError] = useState("");
   const [cueNote, setCueNote] = useState("");
@@ -114,13 +120,26 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
   if (!hudRef.current) hudRef.current = new HudWindowController(tauriHudPort);
   const devicesReady = goLiveReady({ consent, inputMode, microphoneId, speakerId, testedMicrophoneId, testedSpeakerId,
     microphoneTesting, speakerTesting });
-  const startReady = inputMode === "system" ? consent && !!systemOutputId && !systemOutputError && !outputTesting : devicesReady;
+  const startReady = hudPreparationAllowsStart(preparation) && (inputMode === "system" ? consent && !!systemOutputId && !systemOutputError && !outputTesting : devicesReady);
+
+  useEffect(() => {
+    if (liveMetaCueQa) return;
+    let current = true;
+    preparedCuesRef.current = {};
+    void hudCuePreparer.prepare(projects).then((result) => {
+      if (!current) return;
+      preparedCuesRef.current = result.cues;
+      setPreparedState({ projects, state: result.usedFallback ? "fallback" : "ready" });
+    }).catch(() => { if (current) setPreparedState({ projects, state: "fallback" }); });
+    return () => { current = false; };
+  }, [projects]);
 
   useEffect(() => {
     let current = true;
-    const snapshot: HudSnapshot = { status: hudStatus(status), question, cues, noMatch: hudNoMatch,
+    const snapshot: HudSnapshot = { status: status === "ready" && preparation === "preparing" ? "processing" : hudStatus(status), question, cues,
+      noMatch: hudCueState === "no-match", cueState: hudCueState,
       controls: { kind: "go-live", automatic: inputMode === "system", startAllowed: status === "ready" && inputMode === "system" && startReady,
-        startHint: !consent ? "Confirm consent in VantSide." : !systemOutputId ? "Choose a Windows output in VantSide." :
+        startHint: preparation === "preparing" ? "Preparing your interview in VantSide." : !consent ? "Confirm consent in VantSide." : !systemOutputId ? "Choose a Windows output in VantSide." :
           inputMode !== "system" ? "Start this input mode in VantSide." : "Complete setup in VantSide." } };
     hudSnapshotRef.current = snapshot;
     void hudRef.current?.publish(snapshot)
@@ -129,7 +148,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
       .catch(() => { if (current) { setHudDeliveryFailed(true);
         setDiagnostics((old) => ({ ...old, hud: "Delivery failed" })); } });
     return () => { current = false; };
-  }, [status, question, cues, hudNoMatch, hudShown, startReady, inputMode, consent, systemOutputId]);
+  }, [status, question, cues, hudCueState, hudShown, startReady, inputMode, consent, systemOutputId, preparation]);
 
   useEffect(() => {
     hudCommandRef.current = (action) => {
@@ -349,7 +368,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
     if (!activeRef.current || recorderRef.current || captureRef.current || requestRef.current) return;
     const controller = new AbortController();
     captureRef.current = controller;
-    setError(""); setCueNote(""); setQuestion(""); setCues([]); setHudNoMatch(false); setStatus("permission");
+    setError(""); setCueNote(""); setQuestion(""); setCues([]); setHudCueState("idle"); setStatus("permission");
     try {
       const recorder = await startAnswerRecording(controller.signal, microphoneId || undefined);
       if (!activeRef.current || controller.signal.aborted) { recorder.discard(); return; }
@@ -501,7 +520,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
     const generation = sequenceRef.current;
     listeningStartedRef.current = false;
     questionRecognizedRef.current = false;
-    setError(""); setCueNote(""); setCues([]); setQuestion(""); setSessionQuestions([]); setHudNoMatch(false); setHudDeliveryFailed(false);
+    setError(""); setCueNote(""); setCues([]); setQuestion(""); setSessionQuestions([]); setHudCueState("idle"); setHudDeliveryFailed(false);
     setStatus("opening");
     try {
       if (!isTauri()) throw new Error("Open the VantSide desktop app to use the floating HUD.");
@@ -530,10 +549,10 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
     let approvedCount = 0; let eligibleCount: number | null = null; let jevDecision = "";
     setSessionQuestions((current) => addSessionQuestion(interruptSessionQuestions(current), sequence, next));
     setDiagnostics((current) => ({ ...current, approved: null, eligible: null, jev: "Not checked", meta: "Not checked", hud: "Awaiting cue" }));
-    setQuestion(next); setCues([]); setHudNoMatch(false); setCueNote(""); setHudDeliveryFailed(false); setStatus("finding");
+    setQuestion(next); setCues([]); setHudCueState("finding"); setCueNote(""); setHudDeliveryFailed(false); setStatus("finding");
     try {
       await cueRunRef.current.run((signal) => questionToHud({ question: next, projects, opportunity,
-        recentFactIds: recentRef.current, signal, onStage: (event) => {
+        recentFactIds: recentRef.current, preparedCues: liveMetaCueQa ? undefined : preparedCuesRef.current, signal, onStage: (event) => {
           if (!activeRef.current || sequence !== sequenceRef.current) return;
           if (event.stage === "approved") approvedCount = event.count ?? 0;
           if (event.stage === "eligible") eligibleCount = event.count ?? 0;
@@ -542,11 +561,12 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
             ...(event.stage === "approved" ? { approved: approvedCount } : {}),
             ...(event.stage === "eligible" ? { eligible: eligibleCount } : {}),
             ...(event.stage === "jev" ? { jev: jevDecision } : {}),
-            ...(event.stage === "meta" ? { meta: event.decision ?? "No cue" } : {}) }));
+            ...(event.stage === "meta" ? { meta: event.decision ?? "No cue" } : {}),
+            ...(event.stage === "prepared" ? { meta: "Prepared cue" } : {}) }));
         } }), (result) => {
         if (!activeRef.current || sequence !== sequenceRef.current) return;
         setCues(result.cues);
-        setHudNoMatch(result.cues.length === 0 && result.reason !== "unavailable");
+        setHudCueState(result.cues.length ? "shown" : result.reason === "unavailable" ? "unavailable" : "no-match");
         const outcome: QuestionOutcome = result.cues.length ? "cue" : result.reason === "unavailable" ? "unavailable" :
           result.reason === "irrelevant" || (jevDecision && jevDecision !== "show") ? "no-cue" : "no-match";
         setSessionQuestions((current) => settleSessionQuestion(current, sequence, outcome));
@@ -558,12 +578,14 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
           eligibleCount === 0 ? "No matching approved evidence for this question." : "No grounded cue was selected for this question.");
       }, (cause) => {
         if (activeRef.current && sequence === sequenceRef.current) {
+          setHudCueState("unavailable");
           setSessionQuestions((current) => settleSessionQuestion(current, sequence, "unavailable"));
           setCueNote(cause instanceof Error ? cause.message : "Cue unavailable. Continue the interview.");
         }
       });
     } catch (cause) {
       if (activeRef.current && sequence === sequenceRef.current) {
+        setHudCueState("unavailable");
         setSessionQuestions((current) => settleSessionQuestion(current, sequence, "unavailable"));
         setCueNote(cause instanceof Error ? cause.message : "Cue unavailable. Continue the interview.");
       }
@@ -665,8 +687,9 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
       <h1>{opportunity.role}</h1><p className="interview-company">{opportunity.company}{opportunity.roundLabel ? ` · ${opportunity.roundLabel}` : ""}{opportunity.interviewer ? ` · ${opportunity.interviewer}` : ""}</p>
       {inputMode !== "system" && <p className="interview-source">A practice partner can ask a question into your selected microphone.</p>}
       <div className="interview-status" role="status" aria-live="polite"><span className={`interview-status-dot ${status}`}/>{status === "ended" ? "Interview ended" : status === "ready"
-          ? !consent ? "Confirm consent to continue" : startReady ? "Ready" : inputMode === "system" ? "Choose a Windows output to continue" : "Test microphone and speaker to continue"
+          ? preparation === "preparing" ? "Preparing your interview" : !consent ? "Confirm consent to continue" : startReady ? "Ready" : inputMode === "system" ? "Choose a Windows output to continue" : "Test microphone and speaker to continue"
           : ({ opening: "Opening HUD or audio", permission: "Opening microphone", listening: "Listening for a question", "system-listening": "Listening to Windows output", paused: "Listening paused", transcribing: "Transcribing question", finding: "Finding relevant memory", between: "Ready for the next question", ending: "Ending interview" } as const)[status]}</div>
+      {status === "ready" && <HudPreparationStatus state={preparation}/>}
       <div className="interview-controls">
         {!running && <><label className="field-label interview-mic">Question input<select value={inputMode} onChange={(event) => setInputMode(event.target.value as "system" | "microphone" | "text")}><option value="system">Windows output · automatic listening</option><option value="microphone">Microphone · manual question</option><option value="text">Keyboard · test or fallback</option></select></label>
           {inputMode === "system" ? <div className="audio-device-grid go-live-setup">

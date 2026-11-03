@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { questionToHud, type HudPipelineStage } from "./interview-hud-pipeline";
+import { groundedCueText, questionToHud, type HudPipelineStage } from "./interview-hud-pipeline";
 import { LatestQuestion } from "./latest-question";
+import { cueFingerprint, type PreparedHudCue } from "./prepared-hud-cues";
 
 const projects = [{ projectId: "platform", title: "Developer platform", facts: [
   { id: "api-flow", text: "Designed API platform onboarding for developers", source: "Designed API platform onboarding for developers" },
@@ -113,4 +114,49 @@ test("newer question wins; ending the session cancels late results and errors", 
   current.cancel(); finalResolve("after end"); await final;
   assert.deepEqual(shown, ["new question"]);
   assert.equal(current.running, false);
+});
+
+test("a short Meta phrase is displayed only when uniquely grounded in its approved source fact", async () => {
+  const result = await questionToHud({ question, projects, opportunity, recentFactIds: [], signal: new AbortController().signal },
+    async (url) => String(url).endsWith("/decide-hud-cue")
+      ? Response.json({ show: true, cues: [{ factId: "api-flow", projectId: "platform" }, { factId: "api-docs", projectId: "platform" }] })
+      : Response.json({ cue: { projectId: "platform", headline: "API work", cuePhrases: ["API platform onboarding", "API documentation"],
+        sourceFactIds: ["api-flow", "api-docs"], match: "verified" } }));
+  assert.deepEqual(result.cues.map((cue) => [cue.factId, cue.text]),
+    [["api-flow", "API platform onboarding"], ["api-docs", "API documentation"]]);
+  assert.equal(groundedCueText("Increased revenue 90%", projects[0].facts[0].text), false);
+  assert.equal(groundedCueText("Led API launch", "Did not lead the API launch"), false);
+  assert.equal(groundedCueText("Designed API onboarding", "Designed the API; onboarding was handled by another team"), false);
+});
+
+test("unsupported or ambiguous short phrases fall back to complete approved source sentences", async () => {
+  const detailed = [{ projectId: "platform", title: "Developer platform", facts: [
+    { id: "api-flow", text: "Designed API platform onboarding for developers. Collaborated with engineering on rollout.", source: "resume" },
+    { id: "api-docs", text: "Improved API documentation after developer interviews.", source: "interview" },
+  ] }];
+  const result = await questionToHud({ question, projects: detailed, opportunity, recentFactIds: [], signal: new AbortController().signal },
+    async (url) => String(url).endsWith("/decide-hud-cue")
+      ? Response.json({ show: true, cues: [{ factId: "api-flow", projectId: "platform" }, { factId: "api-docs", projectId: "platform" }] })
+      : Response.json({ cue: { projectId: "platform", headline: "API work", cuePhrases: ["Led a global launch"],
+        sourceFactIds: ["api-flow", "api-docs"], match: "verified" } }));
+  assert.deepEqual(result.cues.map((cue) => cue.text),
+    ["Designed API platform onboarding for developers.", "Improved API documentation after developer interviews."]);
+});
+
+test("Jev-selected approved facts map to prepared cues without a live Meta call", async () => {
+  const source = projects[0].facts[0];
+  const approved = { factId: source.id, projectId: "platform", sourceText: source.text };
+  const prepared: PreparedHudCue = { ...approved, fingerprint: await cueFingerprint(approved), text: "API platform onboarding" };
+  const routes: string[] = [];
+  const run = (cue: PreparedHudCue) => questionToHud({ question, projects, opportunity, recentFactIds: [],
+    preparedCues: { [source.id]: cue }, signal: new AbortController().signal }, async (url) => {
+    routes.push(String(url).split("/").at(-1)!);
+    assert.match(String(url), /decide-hud-cue$/);
+    return Response.json({ show: true, cues: [{ factId: source.id, projectId: "platform" }] });
+  });
+  assert.deepEqual((await run(prepared)).cues.map((cue) => cue.text), [prepared.text]);
+  assert.deepEqual(routes, ["decide-hud-cue"]);
+  const stale = { ...prepared, fingerprint: "0".repeat(64), text: "Invented launch result" };
+  assert.deepEqual((await run(stale)).cues.map((cue) => cue.text), [source.text]);
+  assert.deepEqual(routes, ["decide-hud-cue", "decide-hud-cue"]);
 });

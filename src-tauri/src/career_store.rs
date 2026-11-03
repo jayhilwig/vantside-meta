@@ -7,6 +7,7 @@ use tauri::Manager;
 
 const MIGRATION_1: &str = include_str!("../migrations/001_career_memory.sql");
 const MIGRATION_2: &str = include_str!("../migrations/002_opportunity_intelligence.sql");
+const MIGRATION_3: &str = include_str!("../migrations/003_prepared_hud_cues.sql");
 const FILE_NAME: &str = "career-memory.sqlite3";
 
 fn storage_error() -> String {
@@ -42,7 +43,7 @@ fn open_at(path: &Path) -> Result<Connection, String> {
 
 fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version > 2 {
+    if version > 3 {
         return Err(rusqlite::Error::InvalidQuery);
     }
     if version == 0 {
@@ -55,6 +56,12 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute_batch(MIGRATION_2)?;
         tx.pragma_update(None, "user_version", 2)?;
+        tx.commit()?;
+    }
+    if version <= 2 {
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute_batch(MIGRATION_3)?;
+        tx.pragma_update(None, "user_version", 3)?;
         tx.commit()?;
     }
     Ok(())
@@ -217,12 +224,122 @@ fn save_at(
             )?;
         }
     }
+    tx.execute_batch(
+        "DELETE FROM prepared_hud_cues WHERE NOT EXISTS (
+      SELECT 1 FROM career_facts WHERE career_facts.id = prepared_hud_cues.fact_id
+        AND career_facts.project_id = prepared_hud_cues.project_id
+        AND json_extract(career_facts.payload, '$.text') = prepared_hud_cues.source_text
+    );",
+    )?;
     tx.execute(
         "UPDATE storage_revision SET revision = revision + 1 WHERE singleton = 1",
         [],
     )?;
     tx.commit()?;
     Ok(revision + 1)
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedHudCue {
+    fact_id: String,
+    project_id: String,
+    source_text: String,
+    fingerprint: String,
+    text: String,
+}
+
+fn load_prepared_at(connection: &Connection) -> rusqlite::Result<Vec<PreparedHudCue>> {
+    let mut statement = connection.prepare(
+        "SELECT fact_id, project_id, source_text, fingerprint, cue
+      FROM prepared_hud_cues ORDER BY fact_id",
+    )?;
+    statement
+        .query_map([], |row| {
+            Ok(PreparedHudCue {
+                fact_id: row.get(0)?,
+                project_id: row.get(1)?,
+                source_text: row.get(2)?,
+                fingerprint: row.get(3)?,
+                text: row.get(4)?,
+            })
+        })?
+        .collect()
+}
+
+fn save_prepared_at(
+    connection: &mut Connection,
+    entries: &[PreparedHudCue],
+) -> rusqlite::Result<()> {
+    let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    for entry in entries {
+        if entry.fact_id.is_empty()
+            || entry.project_id.is_empty()
+            || entry.source_text.is_empty()
+            || entry.text.is_empty()
+            || entry.text.len() > 200
+            || entry.fingerprint.len() != 64
+            || !entry
+                .fingerprint
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let actual: Option<String> = tx.query_row(
+            "SELECT json_extract(payload, '$.text') FROM career_facts WHERE id = ?1 AND project_id = ?2",
+            params![entry.fact_id, entry.project_id], |row| row.get(0)).optional()?;
+        if actual.as_deref() != Some(entry.source_text.as_str()) {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        tx.execute(
+            "INSERT INTO prepared_hud_cues (fact_id, project_id, source_text, fingerprint, cue)
+          VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(fact_id) DO UPDATE SET
+          project_id = excluded.project_id, source_text = excluded.source_text,
+          fingerprint = excluded.fingerprint, cue = excluded.cue",
+            params![
+                entry.fact_id,
+                entry.project_id,
+                entry.source_text,
+                entry.fingerprint,
+                entry.text
+            ],
+        )?;
+    }
+    tx.commit()
+}
+
+#[tauri::command]
+pub async fn load_prepared_hud_cues(app: tauri::AppHandle) -> Result<Vec<PreparedHudCue>, String> {
+    let path = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| storage_error())?
+        .join(FILE_NAME);
+    tauri::async_runtime::spawn_blocking(move || {
+        let connection = open_at(&path)?;
+        load_prepared_at(&connection).map_err(|_| storage_error())
+    })
+    .await
+    .map_err(|_| storage_error())?
+}
+
+#[tauri::command]
+pub async fn save_prepared_hud_cues(
+    app: tauri::AppHandle,
+    entries: Vec<PreparedHudCue>,
+) -> Result<(), String> {
+    let path = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| storage_error())?
+        .join(FILE_NAME);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut connection = open_at(&path)?;
+        save_prepared_at(&mut connection, &entries).map_err(|_| storage_error())
+    })
+    .await
+    .map_err(|_| storage_error())?
 }
 
 fn records(connection: &Connection, table: &str) -> rusqlite::Result<Vec<Value>> {
@@ -349,7 +466,7 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            2
+            3
         );
     }
 
@@ -383,12 +500,24 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            2
+            3
         );
         assert_eq!(load_at(&connection).unwrap()["revision"], 0);
         assert_eq!(save_at(&mut connection, &sample(), 0).unwrap(), 1);
+        save_prepared_at(
+            &mut connection,
+            &[PreparedHudCue {
+                fact_id: "fact-1".into(),
+                project_id: "project-1".into(),
+                source_text: "Led onboarding work".into(),
+                fingerprint: "a".repeat(64),
+                text: "Led onboarding work".into(),
+            }],
+        )
+        .unwrap();
         drop(connection);
         let mut restarted = open_at(&path).unwrap();
+        assert_eq!(load_prepared_at(&restarted).unwrap().len(), 1);
         assert_eq!(
             load_at(&restarted).unwrap()["state"]["career"]["facts"][0]["id"],
             "fact-1"
@@ -405,14 +534,21 @@ mod tests {
             load_at(&restarted).unwrap()["state"]["rounds"][0]["opportunityId"],
             "job-1"
         );
-        assert_eq!(load_at(&restarted).unwrap()["state"]["rounds"][0]["interviewDate"], "2026-11-03");
-        assert_eq!(load_at(&restarted).unwrap()["state"]["rounds"][0]["interviewerPdf"]["text"], "Public profile text");
+        assert_eq!(
+            load_at(&restarted).unwrap()["state"]["rounds"][0]["interviewDate"],
+            "2026-11-03"
+        );
+        assert_eq!(
+            load_at(&restarted).unwrap()["state"]["rounds"][0]["interviewerPdf"]["text"],
+            "Public profile text"
+        );
         assert_eq!(
             load_at(&restarted).unwrap()["state"]["opportunities"][0]["requirements"][0]["sourceExcerpt"],
             "Design onboarding flows"
         );
         assert_eq!(
-            load_at(&restarted).unwrap()["state"]["opportunities"][0]["alignment"]["strengths"][0]["factId"],
+            load_at(&restarted).unwrap()["state"]["opportunities"][0]["alignment"]["strengths"][0]
+                ["factId"],
             "fact-1"
         );
         assert_eq!(
@@ -420,6 +556,7 @@ mod tests {
             "Tell me about onboarding flows you designed."
         );
         assert_eq!(save_at(&mut restarted, &sample(), 1).unwrap(), 2);
+        assert_eq!(load_prepared_at(&restarted).unwrap().len(), 1);
         assert_eq!(
             load_at(&restarted).unwrap()["state"]["career"]["facts"]
                 .as_array()
@@ -433,6 +570,7 @@ mod tests {
         drop(restarted);
         let after_start_over = open_at(&path).unwrap();
         let restored = load_at(&after_start_over).unwrap();
+        assert!(load_prepared_at(&after_start_over).unwrap().is_empty());
         for (domain, key) in [
             ("career", "materials"),
             ("career", "sources"),
@@ -450,6 +588,53 @@ mod tests {
         }
         drop(after_start_over);
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v2_cache_migration_preserves_facts_and_removes_stale_or_deleted_cues() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .unwrap();
+        connection.execute_batch(MIGRATION_1).unwrap();
+        connection.execute_batch(MIGRATION_2).unwrap();
+        connection.pragma_update(None, "user_version", 2).unwrap();
+        migrate(&mut connection).unwrap();
+        assert_eq!(
+            connection
+                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+                .unwrap(),
+            3
+        );
+        save_at(&mut connection, &sample(), 0).unwrap();
+        let cue = PreparedHudCue {
+            fact_id: "fact-1".into(),
+            project_id: "project-1".into(),
+            source_text: "Led onboarding work".into(),
+            fingerprint: "a".repeat(64),
+            text: "Led onboarding work".into(),
+        };
+        save_prepared_at(&mut connection, &[cue]).unwrap();
+        assert_eq!(load_prepared_at(&connection).unwrap().len(), 1);
+        save_at(&mut connection, &sample(), 1).unwrap();
+        assert_eq!(load_prepared_at(&connection).unwrap().len(), 1);
+        let mut changed = sample();
+        changed["career"]["facts"][0]["text"] = json!("Led a different onboarding project");
+        save_at(&mut connection, &changed, 2).unwrap();
+        assert!(load_prepared_at(&connection).unwrap().is_empty());
+        let stale = PreparedHudCue {
+            fact_id: "fact-1".into(),
+            project_id: "project-1".into(),
+            source_text: "Led onboarding work".into(),
+            fingerprint: "a".repeat(64),
+            text: "Led onboarding work".into(),
+        };
+        assert!(save_prepared_at(&mut connection, &[stale]).is_err());
+        assert!(load_prepared_at(&connection).unwrap().is_empty());
+        let empty = json!({"career":{"version":1,"identity":null,"materials":[],"sources":[],"projects":[],"facts":[]},
+            "sessions":[],"opportunities":[],"rounds":[],"proposals":[]});
+        save_at(&mut connection, &empty, 3).unwrap();
+        assert!(load_prepared_at(&connection).unwrap().is_empty());
     }
 
     #[test]

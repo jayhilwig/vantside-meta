@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { createCue } from "./cue-handler";
+import { prepareHudCues } from "./prepare-hud-cues";
 import { retrieveCues } from "./memory-retrieval";
 import { decideHudCue } from "./hud-decision";
 import { extractOpportunity, extractResume } from "./extraction-handler";
@@ -39,7 +40,7 @@ const server = createServer(async (request, response) => {
     response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-VantSide-Session");
   }
-  const routes = new Set(["/cue", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/extract-job-url", "/company-brand", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals", "/interview/practice/review"]);
+  const routes = new Set(["/cue", "/prepare-hud-cues", "/retrieve-cues", "/decide-hud-cue", "/extract-resume", "/extract-opportunity", "/extract-job-url", "/company-brand", "/analyze-opportunity", "/interview/start", "/interview/turn", "/interview/transcribe", "/interview/live/session", "/interview/live/proposals", "/interview/practice/review"]);
   if (request.method === "OPTIONS" && routes.has(request.url ?? "") && preflightOrigin(origin)) {
     response.writeHead(204); response.end(); return;
   }
@@ -107,6 +108,7 @@ const server = createServer(async (request, response) => {
       : request.url === "/interview/transcribe" ? await transcribeAnswer(body, fetch, controller.signal)
       : request.url === "/retrieve-cues" ? retrieveCues(body)
       : request.url === "/decide-hud-cue" ? await decideHudCue(body, fetch, controller.signal)
+      : request.url === "/prepare-hud-cues" ? await prepareHudCues(body, fetch, controller.signal)
       : await createCue(body, fetch, controller.signal);
     if (!controller.signal.aborted) send(response, result.status, result.body);
   } catch {

@@ -10,14 +10,19 @@ import { LatestQuestion } from "@/lib/latest-question";
 import { HudFacts } from "./hud-facts";
 import { HudVisibilityIcon } from "./hud-visibility-icon";
 import { HudMinimizeGuidance } from "./hud-minimize-guidance";
+import { practiceInterviewOccurred } from "@/lib/interview-rounds";
 import type { PracticeReview } from "@/lib/practice-review-schema";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
-import { HudWindowController, tauriHudPort, type HudSessionStatus, type HudSnapshot } from "@/lib/hud-window";
+import { HudWindowController, tauriHudPort, type HudCueState, type HudSessionStatus, type HudSnapshot } from "@/lib/hud-window";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { canRunPracticeHudAction } from "@/lib/hud-session-controls";
 import type { GoLiveHudAction } from "@/lib/go-live-session";
+import { practiceReviewPresentation, type ReviewPhase } from "@/lib/practice-review-presentation";
+import { hudCuePreparer, liveMetaCueQa } from "@/lib/hud-cue-preparation-port";
+import { hudPreparationAllowsStart, type HudPreparationState, type PreparedCueMap } from "@/lib/hud-cue-preparation";
+import { HudPreparationStatus } from "./hud-preparation-status";
 
 const api = (process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 type Review = PracticeReview;
@@ -38,9 +43,9 @@ async function post<T>(route: string, body: object, signal: AbortSignal): Promis
   return result as T;
 }
 
-export function ConversationalPracticeApp({ profile, projects, context, savedReview, savedPending, onSaveReview, onBack, onProposals, onApprove, onDiscard }: {
+export function ConversationalPracticeApp({ profile, projects, context, savedReview, savedPending, onSaveReview, onCompleted, onBack, onProposals, onApprove, onDiscard }: {
   profile: CareerProfile | null; projects: MemoryProject[]; context: Context; onBack(): void;
-  savedReview: Review | null; savedPending: PendingInterviewFact[]; onSaveReview(review: Review): Promise<void>;
+  savedReview: Review | null; savedPending: PendingInterviewFact[]; onSaveReview(review: Review): Promise<void>; onCompleted(): Promise<void>;
   onProposals(items: Review["proposals"]): Promise<PendingInterviewFact[]>;
   onApprove(items: PendingInterviewFact[]): Promise<void>; onDiscard(items: PendingInterviewFact[]): Promise<void>;
 }) {
@@ -64,7 +69,11 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   const [review, setReview] = useState<Review | null>(savedReview);
   const [cues, setCues] = useState<HudFact[]>([]);
   const [hudQuestion, setHudQuestion] = useState("");
-  const [hudNoMatch, setHudNoMatch] = useState(false);
+  const [hudCueState, setHudCueState] = useState<HudCueState>("idle");
+  const [preparedState, setPreparedState] = useState<{ projects: MemoryProject[]; state: HudPreparationState } | null>(null);
+  const preparation: HudPreparationState = liveMetaCueQa ? "ready" : preparedState?.projects === projects ? preparedState.state : "preparing";
+  const preparedCuesRef = useRef<PreparedCueMap>({});
+  const [reviewPhase, setReviewPhase] = useState<ReviewPhase>("idle");
   const cueRunRef = useRef(new LatestQuestion<Awaited<ReturnType<typeof questionToHud>>>());
   const hudRef = useRef<HudWindowController | null>(null);
   const hudSnapshotRef = useRef<HudSnapshot | null>(null);
@@ -83,12 +92,24 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   const requestRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef("");
   useEffect(() => {
-    const snapshot: HudSnapshot = { status: hudStatus(status), question: hudQuestion, cues, noMatch: hudNoMatch,
+    if (liveMetaCueQa) return;
+    let current = true;
+    preparedCuesRef.current = {};
+    void hudCuePreparer.prepare(projects).then((result) => {
+      if (!current) return;
+      preparedCuesRef.current = result.cues;
+      setPreparedState({ projects, state: result.usedFallback ? "fallback" : "ready" });
+    }).catch(() => { if (current) setPreparedState({ projects, state: "fallback" }); });
+    return () => { current = false; };
+  }, [projects]);
+  useEffect(() => {
+    const snapshot: HudSnapshot = { status: hudStatus(status), question: hudQuestion, cues,
+      noMatch: hudCueState === "no-match", cueState: hudCueState,
       controls: { kind: "practice", canStop: ["connecting", "listening", "user-speaking", "speaking", "paused"].includes(status) } };
     hudSnapshotRef.current = snapshot;
     void hudRef.current?.publish(snapshot)
       .catch(() => console.warn("Practice HUD", { stage: "state", delivery: "failed" }));
-  }, [status, hudQuestion, cues, hudNoMatch]);
+  }, [status, hudQuestion, cues, hudCueState]);
   useEffect(() => {
     hudCommandRef.current = (action) => {
       const canStop = ["connecting", "listening", "user-speaking", "speaking", "paused"].includes(status);
@@ -125,16 +146,16 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   }
 
   function cueForQuestion(question: string) {
-    setHudQuestion(question); setCues([]); setHudNoMatch(false);
+    setHudQuestion(question); setCues([]); setHudCueState("finding");
     void cueRunRef.current.run((signal) => questionToHud({ question, projects, opportunity: { company: context.company, role: context.role,
       requirements: context.hudRequirements, preparationQuestions: context.preparationQuestions },
-      recentFactIds: recentCueIds.current, signal }), (result) => {
+      recentFactIds: recentCueIds.current, preparedCues: liveMetaCueQa ? undefined : preparedCuesRef.current, signal }), (result) => {
       setCues(result.cues);
-      setHudNoMatch(result.cues.length === 0 && result.reason !== "unavailable");
+      setHudCueState(result.cues.length ? "shown" : result.reason === "unavailable" ? "unavailable" : "no-match");
       console.info("Practice HUD", { stage: "cue", reason: result.reason, selectedFacts: result.cues.length });
       // Suppress immediate repeats; an unrelated no-cue turn releases the prior fact.
       recentCueIds.current = result.cues.map((cue) => cue.factId);
-    }, () => { setCues([]); setHudNoMatch(false); console.warn("Practice HUD", { stage: "cue", reason: "unavailable" }); });
+    }, () => { setCues([]); setHudCueState("unavailable"); console.warn("Practice HUD", { stage: "cue", reason: "unavailable" }); });
   }
 
   async function testMicrophone() {
@@ -191,7 +212,7 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   async function closeHudSession() {
     if (closingHudRef.current) return closingHudRef.current;
     const closing = (async () => {
-      if (liveRef.current) void end();
+      if (liveRef.current) void end(false);
       else if (status === "connecting") { requestRef.current?.abort(); requestRef.current = null; setStatus("ended"); }
       await hudRef.current?.close();
       hudStartedRef.current = false; setHudShown(false);
@@ -201,9 +222,9 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   }
 
   async function start() {
-    if (!consent || liveRef.current || requestRef.current) return;
+    if (!consent || !hudPreparationAllowsStart(preparation) || liveRef.current || requestRef.current) return;
     const controller = new AbortController(); requestRef.current = controller;
-    setStatus("connecting"); setError(""); setCues([]); setHudQuestion(""); setHudNoMatch(false);
+    setStatus("connecting"); setError(""); setCues([]); setHudQuestion(""); setHudCueState("idle");
     transcriptRef.current = ""; hudStartedRef.current = false;
     try {
       const live = await startLiveInterview({ microphoneId, outputId: speakerId, signal: controller.signal,
@@ -216,7 +237,7 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
             hudStartedRef.current = true;
             void hudRef.current?.show().then(() => { if (hudStartedRef.current) setHudShown(true); }).catch(() => setError("The floating HUD could not open. The interview can continue."));
           }
-          if (next === "ended" && liveRef.current) void end(); }, onLevel: setLevel,
+          if (next === "ended" && liveRef.current) void end(false); }, onLevel: setLevel,
         onInterviewerQuestion: cueForQuestion,
         onError: (message) => { cueRunRef.current.cancel();
           transcriptRef.current = liveRef.current?.userSpeech().trim() || transcriptRef.current;
@@ -227,26 +248,33 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
     finally { if (requestRef.current === controller) requestRef.current = null; }
   }
 
-  async function end() {
+  async function end(endedNormally = true) {
     if (endingRef.current) return endingRef.current;
     const ending = (async () => {
       cueRunRef.current.cancel();
       requestRef.current?.abort(); requestRef.current = null;
       const live = liveRef.current; liveRef.current = null;
       finishingLiveRef.current = live;
-      setStatus("reviewing"); setError("");
+      setStatus("reviewing"); setReviewPhase("finalizing"); setError("");
       try { transcriptRef.current = live ? (await live.finish()).trim() : transcriptRef.current; }
+      catch { transcriptRef.current = live?.userSpeech().trim() || transcriptRef.current;
+        setStatus("ended"); setReviewPhase("idle"); setError("The final transcript could not be completed. Retry review with the speech captured so far."); return; }
       finally { if (finishingLiveRef.current === live) finishingLiveRef.current = null; }
       setLevel(0);
-      if (transcriptRef.current.length < 40) { setStatus("ended"); setError("There was not enough captured speech for a grounded review. Your Career Memory is unchanged."); return; }
+      if (transcriptRef.current.length < 40) { setStatus("ended"); setReviewPhase("idle"); setError("There was not enough captured speech for a grounded review. Your Career Memory is unchanged."); return; }
+      const completedInterview = practiceInterviewOccurred(endedNormally, Boolean(live), transcriptRef.current);
       await prepareReview();
+      if (completedInterview) {
+        try { await onCompleted(); }
+        catch { setError((current) => `${current ? `${current} ` : ""}The interview ended, but its round status could not be saved. Update it in your interview rounds.`); }
+      }
     })();
     endingRef.current = ending;
     try { await ending; } finally { if (endingRef.current === ending) endingRef.current = null; }
   }
 
   async function prepareReview() {
-    const controller = new AbortController(); requestRef.current = controller; setStatus("reviewing"); setError("");
+    const controller = new AbortController(); requestRef.current = controller; setStatus("reviewing"); setReviewPhase("analyzing"); setError("");
     try {
       const result = await post<Review>("/interview/practice/review", { transcript: transcriptRef.current, role: context.role,
         round: context.round, requirements: context.requirements }, controller.signal);
@@ -255,7 +283,7 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
       catch { console.warn("Practice review", { stage: "persistence" }); throw new Error("Review could not be saved. Retry review; your captured answer is still available in this session."); }
       setReview(result); setStatus("ended"); transcriptRef.current = "";
     } catch (cause) { if (!controller.signal.aborted) { setStatus("ended"); setError(cause instanceof Error ? cause.message : "Review unavailable. Try again."); } }
-    finally { if (requestRef.current === controller) requestRef.current = null; }
+    finally { if (requestRef.current === controller) requestRef.current = null; setReviewPhase("idle"); }
   }
 
   async function saveProposals() {
@@ -278,16 +306,19 @@ export function ConversationalPracticeApp({ profile, projects, context, savedRev
   }
 
   const running = ["connecting", "listening", "user-speaking", "speaking", "paused"].includes(status);
-  return <main className="app-shell"><div className="page-wrap practice-conversation"><button type="button" className="text-button" onClick={() => { cueRunRef.current.cancel(); requestRef.current?.abort(); liveRef.current?.close(); void hudRef.current?.close(); onBack(); }}>← Back to rounds</button>
+  const reviewProgress = practiceReviewPresentation(status, reviewPhase);
+  return <main className="app-shell"><div className="page-wrap practice-conversation"><button type="button" className="text-button" disabled={reviewProgress.navigationLocked} onClick={() => { cueRunRef.current.cancel(); requestRef.current?.abort(); liveRef.current?.close(); void hudRef.current?.close(); onBack(); }}>← Back to rounds</button>
     <h1>Practice Interview</h1><p>{context.role} · {context.company} · {context.round}</p>
-    <div className="live-status" role="status" aria-live="polite"><span className={`live-status-dot ${status}`} aria-hidden="true"/><span>Interview status</span><strong>{({ ready: "Ready", connecting: "Connecting", listening: "Listening", "user-speaking": "You’re speaking", speaking: "Interviewer speaking", paused: "Paused", ended: "Ended", error: "Error", reviewing: "Preparing review" } as const)[status]}</strong></div>
-    {!running && status !== "reviewing" && <><details className="audio-devices" open><summary>Audio setup</summary><div className="audio-device-grid"><section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void navigator.mediaDevices?.enumerateDevices?.().then((items) => setMicrophones(items.filter((item) => item.kind === "audioinput"))).catch(() => undefined)} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((item, index) => <option key={item.deviceId} value={item.deviceId}>{item.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={testing} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={level} aria-label="Microphone level"/></div>{deviceMessageFor === "microphone" && deviceMessage && <span className="device-status" role="status"><span className={deviceOutcome === "pass" ? "test-check" : deviceOutcome === "quiet" ? "test-fail" : ""} aria-hidden="true">{deviceOutcome === "pass" ? "✓" : deviceOutcome === "quiet" ? "×" : ""}</span>{deviceMessage}</span>}</section><section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && speakers.length ? <select value={speakerId} onChange={(event) => setSpeakerId(event.target.value)}><option value="">{speakers.find((item) => item.deviceId === "default")?.label || "System default"}</option>{speakers.filter((item) => item.deviceId !== "default").map((item, index) => <option key={item.deviceId} value={item.deviceId}>{item.label || `Speaker ${index + 1}`}</option>)}</select> : <span className="device-default">System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={testing && !speakerTesting} onClick={() => { if (speakerTesting) stopSpeakerTest(); else void testSpeaker(); }}>{speakerTesting ? "Stop" : "Test speaker"}</button></div>{deviceMessageFor === "speaker" && deviceMessage && <span className="device-status" role="status"><span className={deviceOutcome === "pass" ? "test-check" : ""} aria-hidden="true">{deviceOutcome === "pass" ? "✓" : ""}</span>{deviceMessage}</span>}</section></div></details><label className="practice-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)}/> I confirm this is consensual practice and recording and AI use are allowed.</label><div className="inline-actions"><button type="button" className="primary-button" disabled={!consent || testing || pending.length > 0} onClick={() => void start()}>{review ? "Continue Interview" : "Start Interview"}</button>{isTauri() && <button type="button" className="secondary-button hud-toggle-main" onClick={() => void toggleHud()}><HudVisibilityIcon hidden={hudShown}/>{hudShown ? "Hide HUD" : "Open HUD"}</button>}</div>{review && <p className="detail-note">A completed new segment replaces this round’s saved review.</p>}{pending.length > 0 && <p className="detail-note">Review proposed facts before starting another interview.</p>}</>}
+    <div className="live-status" role="status" aria-live="polite"><span className={`live-status-dot ${status}`} aria-hidden="true"/><span>Interview status</span><strong>{status === "ready" && preparation === "preparing" ? "Preparing" : ({ ready: "Ready", connecting: "Connecting", listening: "Listening", "user-speaking": "You’re speaking", speaking: "Interviewer speaking", paused: "Paused", ended: "Ended", error: "Error", reviewing: "Preparing review" } as const)[status]}</strong></div>
+    {status === "ready" && <HudPreparationStatus state={preparation}/>}
+    {!running && status !== "reviewing" && <><details className="audio-devices" open><summary>Audio setup</summary><div className="audio-device-grid"><section className="device-card" aria-label="Microphone setup"><h3>Microphone</h3><label>Input<select value={microphoneId} onPointerDown={() => void revealMicrophones()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void revealMicrophones(); }} onFocus={() => void navigator.mediaDevices?.enumerateDevices?.().then((items) => setMicrophones(items.filter((item) => item.kind === "audioinput"))).catch(() => undefined)} onChange={(event) => setMicrophoneId(event.target.value)}><option value="">System default</option>{microphones.map((item, index) => <option key={item.deviceId} value={item.deviceId}>{item.label || `Microphone ${index + 1}`}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={testing} onClick={() => void testMicrophone()}>Test microphone</button><meter min="0" max="100" value={level} aria-label="Microphone level"/></div>{deviceMessageFor === "microphone" && deviceMessage && <span className="device-status" role="status"><span className={deviceOutcome === "pass" ? "test-check" : deviceOutcome === "quiet" ? "test-fail" : ""} aria-hidden="true">{deviceOutcome === "pass" ? "✓" : deviceOutcome === "quiet" ? "×" : ""}</span>{deviceMessage}</span>}</section><section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && speakers.length ? <select value={speakerId} onChange={(event) => setSpeakerId(event.target.value)}><option value="">{speakers.find((item) => item.deviceId === "default")?.label || "System default"}</option>{speakers.filter((item) => item.deviceId !== "default").map((item, index) => <option key={item.deviceId} value={item.deviceId}>{item.label || `Speaker ${index + 1}`}</option>)}</select> : <span className="device-default">System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={testing && !speakerTesting} onClick={() => { if (speakerTesting) stopSpeakerTest(); else void testSpeaker(); }}>{speakerTesting ? "Stop" : "Test speaker"}</button></div>{deviceMessageFor === "speaker" && deviceMessage && <span className="device-status" role="status"><span className={deviceOutcome === "pass" ? "test-check" : ""} aria-hidden="true">{deviceOutcome === "pass" ? "✓" : ""}</span>{deviceMessage}</span>}</section></div></details><label className="practice-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)}/> I confirm this is consensual practice and recording and AI use are allowed.</label><div className="inline-actions"><button type="button" className="primary-button" disabled={!consent || !hudPreparationAllowsStart(preparation) || testing || pending.length > 0} onClick={() => void start()}>{review ? "Continue Interview" : "Start Interview"}</button>{isTauri() && <button type="button" className="secondary-button hud-toggle-main" onClick={() => void toggleHud()}><HudVisibilityIcon hidden={hudShown}/>{hudShown ? "Hide HUD" : "Open HUD"}</button>}</div>{review && <p className="detail-note">A completed new segment replaces this round’s saved review.</p>}{pending.length > 0 && <p className="detail-note">Review proposed facts before starting another interview.</p>}</>}
     {running && <div className="inline-actions"><meter min="0" max="100" value={level} aria-label="Microphone level"/>{status === "paused" ? <button type="button" className="secondary-button" onClick={() => liveRef.current?.resume()}>Resume</button> : status !== "connecting" && <button type="button" className="secondary-button" onClick={() => liveRef.current?.pause()}>Pause</button>}<button type="button" className="secondary-button" onClick={() => void end()}>End Interview</button></div>}
     {running && status !== "connecting" && isTauri() && <button type="button" className="text-button hud-toggle-main" onClick={() => void toggleHud()}><HudVisibilityIcon hidden={hudShown}/>{hudShown ? "Hide HUD" : "Show HUD"}</button>}
     <HudMinimizeGuidance open={hudShown}/>
-    {running && !isTauri() && <section className="practice-hud" aria-label="Practice Career Memory HUD"><span className="eyebrow">PRACTICE HUD</span><div className="hud-surface"><HudFacts cues={cues} noMatch={hudNoMatch} status={hudStatus(status)}/></div></section>}
+    {running && !isTauri() && <section className="practice-hud" aria-label="Practice Career Memory HUD"><span className="eyebrow">PRACTICE HUD</span><div className="hud-surface"><HudFacts cues={cues} cueState={hudCueState} status={hudStatus(status)} hasQuestion={Boolean(hudQuestion)}/></div></section>}
+    {status === "reviewing" && <section className="practice-review-loading" role="status" aria-live="polite"><span className="resume-processing-dots" aria-hidden="true"><i/><i/><i/><i/></span><h2>Analyzing your interview</h2><p>{reviewProgress.detail}</p></section>}
     {error && <p className="step-error" role="alert">{error}{transcriptRef.current.length >= 40 && <button type="button" className="text-button" onClick={() => void prepareReview()}>Retry review</button>}</p>}
-    {review && <section className="practice-review"><h2>Practice review</h2>
+    {review && status !== "reviewing" && <section className="practice-review"><h2>Practice review</h2>
       {review.competencies?.length > 0 && <div className="practice-review-requirements">
         {(["Strong", "Develop Further", "Not Demonstrated"] as const).map((assessment) => {
           const items = review.competencies.filter((item) => item.assessment === assessment);

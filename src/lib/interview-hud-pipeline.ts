@@ -2,14 +2,16 @@ import { personalCueSchema } from "./cue-schema";
 import { localApiHeaders } from "./local-api-auth";
 import type { OpportunityRequirement } from "./opportunity-analysis";
 import type { MemoryProject } from "./session-schema";
+import { cueFingerprint, currentCueText, groundedCueText, sourceCueFallback, type PreparedHudCue } from "./prepared-hud-cues";
+export { groundedCueText } from "./prepared-hud-cues";
 
 export type HudFact = { factId: string; projectId: string; text: string };
 export type HudOpportunity = { company: string; role: string; requirements?: OpportunityRequirement[]; preparationQuestions?: string[] };
 export type HudResult = { question: string; cues: HudFact[]; reason: "shown" | "no-match" | "irrelevant" | "unavailable" };
 
-export type HudPipelineStage = { stage: "approved" | "jev" | "eligible" | "meta"; count?: number; decision?: string };
+export type HudPipelineStage = { stage: "approved" | "jev" | "eligible" | "prepared" | "meta"; count?: number; decision?: string };
 type Input = { question: string; projects: MemoryProject[]; opportunity: HudOpportunity; recentFactIds: string[]; signal: AbortSignal;
-  onStage?: (event: HudPipelineStage) => void };
+  preparedCues?: Record<string, PreparedHudCue>; onStage?: (event: HudPipelineStage) => void };
 
 export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
   baseUrl = process.env.NEXT_PUBLIC_CUE_API_BASE_URL ?? "http://127.0.0.1:8787"): Promise<HudResult> {
@@ -47,14 +49,36 @@ export async function questionToHud(input: Input, fetcher: typeof fetch = fetch,
   input.onStage?.({ stage: "eligible", count: eligible.size });
   if (!selected.length) return { question, cues: [], reason: "no-match" };
 
+  if (input.preparedCues) {
+    const cues = await Promise.all((Array.isArray(decision.cues) ? decision.cues : []).slice(0, 3).flatMap((candidate) => {
+      if (!candidate?.factId || !candidate.projectId || !eligible.has(candidate.factId)) return [];
+      const project = selected.find((item) => item.projectId === candidate.projectId);
+      const fact = project?.facts.find((item) => item.id === candidate.factId);
+      return project && fact ? [{ project, fact }] : [];
+    }).filter((item, index, items) => items.findIndex((other) => other.fact.id === item.fact.id) === index)
+      .map(async ({ project, fact }) => {
+        const approved = { factId: fact.id, projectId: project.projectId, sourceText: fact.text };
+        const fingerprint = await cueFingerprint(approved);
+        return { factId: fact.id, projectId: project.projectId,
+          text: currentCueText(input.preparedCues?.[fact.id], approved, fingerprint) };
+      }));
+    input.onStage?.({ stage: "prepared", count: cues.length });
+    return { question, cues, reason: cues.length ? "shown" : "no-match" };
+  }
+
   const result = await post("/cue", { question, projects: selected, opportunity }) as { cue?: unknown };
   const parsed = personalCueSchema(selected).safeParse(result.cue);
   if (!parsed.success) throw new Error("The cue could not be verified. Continue practicing or try another question.");
   input.onStage?.({ stage: "meta", decision: parsed.data.match });
   if (parsed.data.match === "none") return { question, cues: [], reason: "no-match" };
-  const cues = parsed.data.sourceFactIds.flatMap((factId) => selected.flatMap((project) =>
-    project.facts.filter((fact) => fact.id === factId && project.projectId === parsed.data.projectId)
-      .map((fact) => ({ factId, projectId: project.projectId,
-        text: fact.text.length <= 105 ? fact.text : `${fact.text.slice(0, 102).replace(/\s+\S*$/, "")}…` })))).slice(0, 3);
+  const project = selected.find((item) => item.projectId === parsed.data.projectId);
+  const citedFacts = [...new Set(parsed.data.sourceFactIds)].flatMap((factId) => project?.facts.filter((fact) => fact.id === factId) ?? []);
+  const phrases = [...parsed.data.cuePhrases];
+  const cues = citedFacts.slice(0, 3).map((fact) => {
+    const index = phrases.findIndex((phrase) => groundedCueText(phrase, fact.text) &&
+      citedFacts.filter((candidate) => groundedCueText(phrase, candidate.text)).length === 1);
+    const text = index < 0 ? sourceCueFallback(fact.text) : phrases.splice(index, 1)[0];
+    return { factId: fact.id, projectId: project!.projectId, text };
+  });
   return { question, cues, reason: cues.length ? "shown" : "no-match" };
 }

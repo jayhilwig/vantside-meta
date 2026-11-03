@@ -3,11 +3,12 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { HudFact } from "./interview-hud-pipeline";
 
 export type HudSessionStatus = "ready" | "listening" | "processing" | "paused" | "stopped";
+export type HudCueState = "idle" | "finding" | "shown" | "no-match" | "unavailable";
 export type HudControls =
   | { kind: "go-live"; automatic: boolean; startAllowed: boolean; startHint: string }
   | { kind: "practice"; canStop: boolean };
 export type HudSnapshot = { status: HudSessionStatus; question: string; cues: HudFact[]; noMatch: boolean;
-  controls?: HudControls };
+  cueState?: HudCueState; controls?: HudControls };
 export const emptyHudSnapshot = (): HudSnapshot => ({ status: "ready", question: "", cues: [], noMatch: false });
 
 export interface HudWindowHandle { show(): Promise<void>; hide(): Promise<void>; close(): Promise<void> }
@@ -79,7 +80,7 @@ export const tauriHudPort: HudWindowPort = {
     const [position, size, scale] = await Promise.all([main.outerPosition(), main.outerSize(), main.scaleFactor()]);
     return new Promise((resolve, reject) => {
       const window = new WebviewWindow("hud", {
-      url: "/hud/", title: "VantSide HUD", width: 1080, height: 258, minWidth: 520, minHeight: 210,
+      url: "/hud/", title: "VantSide HUD", width: 1080, height: 290, minWidth: 520, minHeight: 240,
       x: Math.round(position.x / scale + (size.width / scale - 1080) / 2), y: Math.round(position.y / scale + 56),
       visible: false, decorations: false, alwaysOnTop: true, skipTaskbar: true,
       transparent: true, shadow: false, resizable: true, preventOverflow: true, focus: false,
