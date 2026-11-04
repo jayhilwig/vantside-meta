@@ -481,7 +481,9 @@ mod tests {
             "sourceLabel":"Pasted job description","requirements":[{"id":"req-1","kind":"responsibility","text":"Design onboarding flows","sourceExcerpt":"Design onboarding flows"}],
             "alignment":{"strengths":[{"requirementId":"req-1","factId":"fact-1"}],"needsEvidence":[]},
             "preparationQuestions":["Tell me about onboarding flows you designed."]}],
-          "rounds":[{"id":"round-1","opportunityId":"job-1","label":"First round","status":"planned","interviewDate":"2026-11-03","interviewerLinkedInUrl":"https://www.linkedin.com/in/example/","interviewerPdf":{"name":"profile.pdf","text":"Public profile text"}}],
+          "rounds":[{"id":"round-1","opportunityId":"job-1","label":"First round","status":"planned","interviewDate":"2026-11-03","interviewerLinkedInUrl":"https://www.linkedin.com/in/example/","interviewerPdf":{"name":"profile.pdf","text":"Public profile text"},
+            "practiceReview":{"topics":[],"strengths":[],"clarity":[],"areas":[],"competencies":[],"proposals":[]},
+            "goLiveSummary":{"status":"ended","endedAt":"2026-11-03T20:00:00Z","questions":[{"question":"How did you lead onboarding?","outcome":"cue"}]}}],
           "proposals":[{"id":"proposal-1","projectId":"project-1","projectTitle":"Onboarding","kind":"role","text":"Worked with support","sourceIds":["source-2"],"originSessionId":"session-1","proposedAt":"2026-10-28T00:00:00Z"}]})
     }
 
@@ -542,6 +544,9 @@ mod tests {
             load_at(&restarted).unwrap()["state"]["rounds"][0]["interviewerPdf"]["text"],
             "Public profile text"
         );
+        let round = &load_at(&restarted).unwrap()["state"]["rounds"][0];
+        assert_eq!(round["goLiveSummary"], sample()["rounds"][0]["goLiveSummary"]);
+        assert_eq!(round["practiceReview"], sample()["rounds"][0]["practiceReview"]);
         assert_eq!(
             load_at(&restarted).unwrap()["state"]["opportunities"][0]["requirements"][0]["sourceExcerpt"],
             "Design onboarding flows"

@@ -48,6 +48,8 @@ In the intended product, user-approved reusable career facts persist globally af
 
 The Step 4 implementation prepares brief, extractive cues from approved facts before Practice or Go Live starts. Valid cues are reused from local SQLite; Jev still chooses which approved facts belong in the HUD for each question. If preparation fails, the session can proceed using complete source-derived excerpts. Windows timing and display behavior remain to be verified manually.
 
+After Go Live ends, the user can review and explicitly save up to the last 20 recognized interviewer questions and their cue outcomes. The round retains its latest saved Go Live summary until it is removed, replaced, or the round is deleted. The practice review is stored separately.
+
 ## Memory model
 
 - **Career Memory (global):** Approved projects, roles, accomplishments, decisions, skills, stories and supporting sources; reusable across opportunities. Reviewed facts persist in the desktop app's local database.

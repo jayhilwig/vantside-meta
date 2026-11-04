@@ -16,7 +16,7 @@ html:has(.hud-root), body:has(.hud-root) { background: transparent; }
 .hud-surface { position: relative; display: flex; flex-direction: column; height: 100vh; overflow: hidden; padding: 10px 26px 14px; border: 1px solid rgba(50, 54, 49, .25); border-radius: 22px; background: rgba(250, 251, 249, .89); box-shadow: inset 0 1px 3px rgba(255, 255, 255, .5); }
 .hud-header { display: flex; flex-shrink: 0; align-items: center; gap: 14px; min-height: 34px; padding-right: 86px; color: #374037; font-size: 11px; cursor: grab; user-select: none; }
 .hud-header:active { cursor: grabbing; }
-.hud-content { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-right: 3px; scrollbar-width: thin; }
+.hud-content { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 0 3px 12px 0; scrollbar-width: thin; }
 .hud-header strong { font-size: 12px; }
 .hud-status { display: inline-flex; align-items: center; gap: 7px; color: #475348; font-size: 12px; font-weight: 700; }
 .hud-status i { width: 10px; height: 10px; border-radius: 50%; background: #a5aaa2; }
@@ -44,10 +44,9 @@ html:has(.hud-root), body:has(.hud-root) { background: transparent; }
 .hud-session-controls button:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 .hud-control-note, .hud-command-error { color: #68736a; font-size: 11px; }
 .hud-command-error { margin: 4px 0; color: #8c372e; }
-.hud-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); min-height: 40px; align-items: center; }
+.hud-facts { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); min-height: 40px; align-items: start; }
 .hud-facts:has(.hud-fact) { min-height: 72px; }
 .hud-fact { min-width: 0; padding: 0 14px; color: #202720; font-size: 15px; line-height: 1.4; font-weight: 650; letter-spacing: -.01em; overflow-wrap: anywhere; animation: hud-fact-in .25s ease both; }
-.hud-fact::before { content: "•"; margin-right: 8px; color: #148344; font-size: 19px; vertical-align: -.04em; }
 .hud-fact + .hud-fact { border-left: 1px solid rgba(50, 54, 49, .2); }
 .hud-number { color: #167f4b; font-weight: 800; }
 .hud-waiting { margin: 0; color: #586158; font-size: 13px; text-align: center; }

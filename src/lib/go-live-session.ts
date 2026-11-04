@@ -1,9 +1,21 @@
+import { z } from "zod";
 import type { HudSessionStatus } from "./hud-window";
 
 export type GoLiveHudAction = "start" | "pause" | "resume" | "stop" | "close";
 export type QuestionOutcome = "processing" | "cue" | "no-cue" | "no-match" | "unavailable" | "interrupted";
 export type SessionQuestion = { id: number; question: string; outcome: QuestionOutcome };
 const MAX_SESSION_QUESTIONS = 20;
+
+export const goLiveSummarySchema = z.object({
+  status: z.literal("ended"),
+  endedAt: z.iso.datetime(),
+  questions: z.array(z.object({
+    question: z.string().trim().min(1).max(500),
+    outcome: z.enum(["cue", "no-cue", "no-match", "unavailable", "interrupted"]),
+  }).strict()).max(MAX_SESSION_QUESTIONS),
+}).strict();
+
+export type GoLiveSummary = z.infer<typeof goLiveSummarySchema>;
 
 export function canRunGoLiveHudAction(action: GoLiveHudAction, status: HudSessionStatus, startAllowed: boolean): boolean {
   if (action === "close") return true;

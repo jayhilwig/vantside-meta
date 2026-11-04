@@ -12,7 +12,7 @@ import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
 import { localApiHeaders } from "@/lib/local-api-auth";
 import { readJobPdfText } from "@/lib/job-pdf-text";
-import { completeGoLiveRound, deleteRound, roundStatusLabels, savePracticeReview, saveRound, updateRoundStatus } from "@/lib/interview-rounds";
+import { completeGoLiveRound, deleteRound, roundStatusLabels, saveGoLiveSummary, savePracticeReview, saveRound, updateRoundStatus } from "@/lib/interview-rounds";
 import { isCurrentOperation, visibleStepError } from "@/lib/step-workflow";
 import type { CareerProfile, MemoryProject, Opportunity } from "@/lib/session-schema";
 import type { OpportunityAnalysis } from "@/lib/opportunity-analysis";
@@ -797,6 +797,9 @@ export function JourneyApp() {
     return <InterviewPracticeApp projects={approved} opportunity={{ company: selected.company, role: selected.role,
       roundLabel: selectedRound?.label, interviewer: selectedRound?.interviewer,
       requirements: selected.requirements, preparationQuestions: selected.preparationQuestions }} onBack={() => setPractice(null)}
+      summaryStorage={selectedRound ? { saved: selectedRound.goLiveSummary, write: async (summary) => {
+        await commitMemory((state) => saveGoLiveSummary(state, selected.id, selectedRound.id, summary));
+      } } : undefined}
       onCompleted={async () => { if (!selectedRound) return;
         await commitMemory((state) => completeGoLiveRound(state, selected.id, selectedRound.id, true, new Date().toISOString())); }} />;
   }

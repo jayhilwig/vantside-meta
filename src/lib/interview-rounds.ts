@@ -1,6 +1,7 @@
 import { dismissProposal, memoryStateSchema, type MemoryState } from "../../backend/career-memory";
 import { newMemoryId } from "./journey-memory";
 import { practiceReviewSchema, type PracticeReview } from "./practice-review-schema";
+import type { GoLiveSummary } from "./go-live-session";
 
 export function saveRound(state: MemoryState, opportunityId: string, label: string, interviewer: string,
   status: MemoryState["rounds"][number]["status"], roundId?: string,
@@ -38,6 +39,15 @@ export function savePracticeReview(state: MemoryState, opportunityId: string, ro
 }
 
 export const roundStatusLabels = { planned: "Upcoming", active: "In progress", completed: "Completed", cancelled: "Cancelled" } as const;
+
+export function saveGoLiveSummary(state: MemoryState, opportunityId: string, roundId: string, summary: GoLiveSummary | undefined): MemoryState {
+  if (!state.rounds.some((round) => round.id === roundId && round.opportunityId === opportunityId))
+    throw new Error("This interview round is no longer available.");
+  return memoryStateSchema.parse({
+    ...state,
+    rounds: state.rounds.map((round) => round.id === roundId ? { ...round, goLiveSummary: summary } : round),
+  });
+}
 
 export function goLiveInterviewOccurred(listeningStarted: boolean, audioQuestionRecognized: boolean): boolean {
   return listeningStarted && audioQuestionRecognized;

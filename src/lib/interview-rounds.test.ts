@@ -1,8 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deleteOpportunity, emptyMemoryState, memoryStateSchema } from "../../backend/career-memory";
-import { completeGoLiveRound, deleteRound, goLiveInterviewOccurred, practiceInterviewOccurred, savePracticeReview, saveRound, updateRoundStatus } from "./interview-rounds";
+import { completeGoLiveRound, deleteRound, goLiveInterviewOccurred, practiceInterviewOccurred, saveGoLiveSummary, savePracticeReview, saveRound, updateRoundStatus } from "./interview-rounds";
+import type { GoLiveSummary } from "./go-live-session";
 import { retainPendingFact } from "./journey-memory";
+
+test("a saved Go Live summary survives reload and can be removed independently of practice review", () => {
+  const endedAt = "2026-11-04T20:00:00.000Z";
+  const state = emptyMemoryState();
+  state.opportunities = [{ id: "job-a", company: "Company A", role: "Designer", description: "Design", confirmedAt: endedAt }];
+  const withRound = saveRound(state, "job-a", "Hiring Manager", "", "completed");
+  const roundId = withRound.rounds[0].id;
+  const review = { topics: [], strengths: [], clarity: [], areas: [], competencies: [], proposals: [] };
+  const practiced = savePracticeReview(withRound, "job-a", roundId, review);
+  const summary: GoLiveSummary = { status: "ended", endedAt, questions: [
+    { question: "How did you lead the redesign?", outcome: "cue" },
+    { question: "What did you learn?", outcome: "no-match" },
+  ] };
+  const saved = saveGoLiveSummary(practiced, "job-a", roundId, summary);
+  const reopened = memoryStateSchema.parse(JSON.parse(JSON.stringify(saved)));
+  assert.deepEqual(reopened.rounds[0].goLiveSummary, summary);
+  assert.deepEqual(reopened.rounds[0].practiceReview, review);
+  assert.equal(reopened.rounds[0].status, "completed");
+  assert.throws(() => saveGoLiveSummary(reopened, "wrong-job", roundId, summary));
+  const removed = saveGoLiveSummary(reopened, "job-a", roundId, undefined);
+  assert.equal(removed.rounds[0].goLiveSummary, undefined);
+  assert.deepEqual(removed.rounds[0].practiceReview, review);
+});
 
 test("rounds remain with their opportunities after reload and legacy records remain readable", () => {
   const state = emptyMemoryState();

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { practiceReviewSchema } from "../src/lib/practice-review-schema";
+import { goLiveSummarySchema } from "../src/lib/go-live-session";
 import { careerProfileSchema } from "../src/lib/session-schema";
 
 const id = z.string().regex(/^[a-z0-9-]{1,40}$/);
@@ -89,6 +90,7 @@ export const interviewRoundSchema = z.object({
   interviewerLinkedInUrl: z.url().max(500).optional(),
   interviewerPdf: z.object({ name: z.string().trim().min(1).max(120), text: z.string().trim().min(1).max(12000) }).strict().optional(),
   practiceReview: practiceReviewSchema.optional(),
+  goLiveSummary: goLiveSummarySchema.optional(),
   status: z.enum(["planned", "active", "completed", "cancelled"]),
   startedAt: timestamp.optional(),
   endedAt: timestamp.optional(),

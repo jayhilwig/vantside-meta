@@ -18,7 +18,7 @@ import { listSystemOutputs, startSystemOutputCapture, stopSystemOutputCapture, t
 import { looksLikeInterviewQuestion, pcm16ToWavBase64, pcmLevel, SystemQuestionSegmenter } from "@/lib/system-question-segmenter";
 import { goLiveAudioHealth } from "@/lib/go-live-audio-health";
 import { addSessionQuestion, dispatchGoLiveHudAction, interruptSessionQuestions, settleSessionQuestion,
-  type GoLiveHudAction, type QuestionOutcome, type SessionQuestion } from "@/lib/go-live-session";
+  type GoLiveHudAction, type GoLiveSummary, type QuestionOutcome, type SessionQuestion } from "@/lib/go-live-session";
 import { goLiveInterviewOccurred } from "@/lib/interview-rounds";
 import type { MemoryProject } from "@/lib/session-schema";
 import { hudCuePreparer, liveMetaCueQa } from "@/lib/hud-cue-preparation-port";
@@ -38,12 +38,13 @@ type CaptureDiagnostics = { initialization: string; packets: number; level: numb
   question: string; approved: number | null; eligible: number | null; jev: string; meta: string; hud: string };
 const emptyDiagnostics = (): CaptureDiagnostics => ({ initialization: "Not started", packets: 0, level: 0, segments: 0,
   transcription: "Not attempted", question: "Not checked", approved: null, eligible: null, jev: "Not checked", meta: "Not checked", hud: "Not shown" });
-const outcomeLabel: Record<QuestionOutcome, string> = { processing: "Finding a cue", cue: "Career Memory cue shown",
+const outcomeLabel: Record<QuestionOutcome, string> = { processing: "Finding a cue", cue: "Relevant Career Memory cue selected",
   "no-cue": "No cue recommended", "no-match": "No relevant approved cue", unavailable: "Cue unavailable", interrupted: "Stopped before cue selection" };
 
-export function InterviewPracticeApp({ projects, opportunity, onBack, onCompleted }: {
+export function InterviewPracticeApp({ projects, opportunity, onBack, onCompleted, summaryStorage }: {
   projects: MemoryProject[]; opportunity: HudOpportunity & { roundLabel?: string; interviewer?: string }; onBack: () => void;
   onCompleted(): Promise<void>;
+  summaryStorage?: { saved?: GoLiveSummary; write(summary: GoLiveSummary | undefined): Promise<void> };
 }) {
   const [status, setStatus] = useState<Status>("ready");
   const [consent, setConsent] = useState(false);
@@ -69,6 +70,12 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
   const [speakerStatus, setSpeakerStatus] = useState("");
   const [question, setQuestion] = useState("");
   const [sessionQuestions, setSessionQuestions] = useState<SessionQuestion[]>([]);
+  const [endedAt, setEndedAt] = useState("");
+  const [openingReadyHud, setOpeningReadyHud] = useState(false);
+  const [summaryFeedback, setSummaryFeedback] = useState<{ message: string; failed?: boolean } | null>(null);
+  const [writingSummary, setWritingSummary] = useState(false);
+  const summaryWriteRef = useRef(false);
+  const openingReadyHudRef = useRef(false);
   const [typedQuestion, setTypedQuestion] = useState("");
   const [cues, setCues] = useState<HudFact[]>([]);
   const [hudCueState, setHudCueState] = useState<HudCueState>("idle");
@@ -548,7 +555,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
     if (fromAudio) questionRecognizedRef.current = true;
     const sequence = ++sequenceRef.current;
     let approvedCount = 0; let eligibleCount: number | null = null; let jevDecision = "";
-    setSessionQuestions((current) => addSessionQuestion(interruptSessionQuestions(current), sequence, next));
+    if (fromAudio) setSessionQuestions((current) => addSessionQuestion(interruptSessionQuestions(current), sequence, next));
     setDiagnostics((current) => ({ ...current, approved: null, eligible: null, jev: "Not checked", meta: "Not checked", hud: "Awaiting cue" }));
     setQuestion(next); setCues([]); setHudCueState("finding"); setCueNote(""); setHudDeliveryFailed(false); setStatus("finding");
     try {
@@ -640,7 +647,9 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
     setStatus("ending");
     const stopping = (async () => {
       await stopResources(false);
-      setStatus("ended"); setSessionQuestions(interruptSessionQuestions); setTypedQuestion(""); setCaptureHealth("");
+      setSessionQuestions(interruptSessionQuestions); setTypedQuestion(""); setCaptureHealth("");
+      setEndedAt(new Date().toISOString());
+      setSummaryFeedback(null);
       setTestedMicrophoneId(null); setTestedSpeakerId(null); setMicrophoneStatus(""); setSpeakerStatus("");
       const completedInterview = goLiveInterviewOccurred(listeningStartedRef.current, questionRecognizedRef.current);
       listeningStartedRef.current = false;
@@ -649,6 +658,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
         try { await onCompleted(); }
         catch { setError("The interview stopped, but its round status could not be saved. Update it in your interview rounds."); }
       }
+      setStatus("ended");
     })();
     stoppingRef.current = stopping;
     try { await stopping; } finally { if (stoppingRef.current === stopping) stoppingRef.current = null; }
@@ -679,7 +689,76 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
     } catch { setError("The HUD could not be shown. Try again or continue the interview without a cue."); }
   }
 
+  async function openReadyHud() {
+    if (openingReadyHudRef.current || summaryWriteRef.current) return;
+    openingReadyHudRef.current = true;
+    setOpeningReadyHud(true);
+    const run = ++hudRunRef.current;
+    try {
+      await hudRef.current?.publish({
+        status: "ready", question: "", cues: [], noMatch: false, cueState: "idle",
+        controls: { kind: "go-live", automatic: inputMode === "system", startAllowed: false,
+          startHint: "Confirm consent in VantSide." },
+      });
+      if (run !== hudRunRef.current) return;
+      await hudRef.current?.show();
+      if (run !== hudRunRef.current) return;
+      setConsent(false);
+      setSessionQuestions([]);
+      setEndedAt("");
+      setQuestion("");
+      setCues([]);
+      setHudCueState("idle");
+      setCueNote("");
+      setSummaryFeedback(null);
+      setDiagnostics(emptyDiagnostics());
+      setError("");
+      setHudDeliveryFailed(false);
+      setHudShown(true);
+      setStatus("ready");
+    } catch {
+      setError("The HUD could not be opened. Try Start New Session again.");
+    } finally {
+      openingReadyHudRef.current = false;
+      setOpeningReadyHud(false);
+    }
+  }
+
+  async function writeSummary(summary: GoLiveSummary | undefined) {
+    if (!summaryStorage || summaryWriteRef.current || openingReadyHudRef.current ||
+      (summary && summaryStorage.saved?.endedAt === summary.endedAt)) return;
+    summaryWriteRef.current = true;
+    setWritingSummary(true);
+    setSummaryFeedback(null);
+    try {
+      await summaryStorage.write(summary);
+      setSummaryFeedback({ message: summary ? "Summary saved to this round." : "Saved summary removed." });
+    } catch {
+      setSummaryFeedback({ message: summary ? "Could not save the summary. Try again." : "Could not remove the summary. Try again.", failed: true });
+    } finally {
+      summaryWriteRef.current = false;
+      setWritingSummary(false);
+    }
+  }
+
   const running = status !== "ready" && status !== "ended";
+  const currentSummary: GoLiveSummary | undefined = status === "ended" ? {
+    status: "ended",
+    endedAt,
+    questions: sessionQuestions.map(({ question, outcome }) => ({ question, outcome: outcome === "processing" ? "interrupted" : outcome })),
+  } : undefined;
+  const savedSummary = summaryStorage?.saved;
+  const alreadySaved = Boolean(currentSummary && savedSummary?.endedAt === currentSummary.endedAt);
+
+  function summaryDetails(summary: GoLiveSummary) {
+    const { questions } = summary;
+    return <>
+      <p>{opportunity.role} at {opportunity.company}{opportunity.roundLabel ? ` · ${opportunity.roundLabel}` : ""} · Session ended</p>
+      <p>{questions.length} {questions.length === 1 ? "question" : "questions"} listed · {questions.filter((item) => item.outcome === "cue").length} with relevant cues</p>
+      {questions.length ? <ol>{questions.map((item, index) => <li key={index}><span>{item.question}</span><small>{outcomeLabel[item.outcome]}</small></li>)}</ol>
+        : <p>No interviewer questions were recognized.</p>}
+    </>;
+  }
   return <main className="app-shell"><div className="page-wrap">
     <header className="topbar"><button className="text-button" type="button" onClick={() => { void (async () => { if (activeRef.current || listeningStartedRef.current) await endSession(); await stopResources(); onBack(); })(); }}>← Four steps</button>
       <span className="brand-lockup"><BrandMark small/><span>VantSide</span></span><span className="session-pill">INTERVIEW SETUP</span></header>
@@ -692,7 +771,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
           : ({ opening: "Opening HUD or audio", permission: "Opening microphone", listening: "Listening for a question", "system-listening": "Listening to Windows output", paused: "Listening paused", transcribing: "Transcribing question", finding: "Finding relevant memory", between: "Ready for the next question", ending: "Ending interview" } as const)[status]}</div>
       {status === "ready" && <HudPreparationStatus state={preparation}/>}
       <div className="interview-controls">
-        {!running && <><label className="field-label interview-mic">Question input<select value={inputMode} onChange={(event) => setInputMode(event.target.value as "system" | "microphone" | "text")}><option value="system">Windows output · automatic listening</option><option value="microphone">Microphone · manual question</option><option value="text">Keyboard · test or fallback</option></select></label>
+        {status === "ready" && <><label className="field-label interview-mic">Question input<select value={inputMode} onChange={(event) => setInputMode(event.target.value as "system" | "microphone" | "text")}><option value="system">Windows output · automatic listening</option><option value="microphone">Microphone · manual question</option><option value="text">Keyboard · test or fallback</option></select></label>
           {inputMode === "system" ? <div className="audio-device-grid go-live-setup">
             <section className="device-card" aria-label="Microphone"><h3>Microphone</h3><p>Your meeting microphone stays in your meeting app. Automatic question detection does not capture it.</p></section>
             <section className="device-card" aria-label="Interviewer audio"><h3>Where you’ll hear the interviewer</h3><label className="field-label">Windows output<select value={systemOutputId} disabled={outputTesting} onChange={(event) => { systemOutputIdRef.current = event.target.value; setSystemOutputId(event.target.value); setSystemOutputError(""); setOutputTestStatus(""); setOutputRefreshNotice(""); }}><option value="" disabled>Choose an output</option>{systemOutputs.map((output) => <option key={output.id} value={output.id}>{output.name}{output.isDefault ? " · default" : ""}</option>)}</select></label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={!systemOutputId} onClick={() => { if (outputTesting) void outputTestRef.current?.stop(); else void testSystemOutput(); }}>{outputTesting ? "Stop test" : "Test output"}</button><button type="button" className="text-button" disabled={outputTesting} onClick={() => void refreshSystemOutputs(() => true, true)}>Refresh outputs</button></div>{outputRefreshNotice && <p className="device-status" role="status">{outputRefreshNotice}</p>}{outputTestStatus && <p className="device-status" role="status">{outputTestStatus}</p>}{systemOutputError && <p className="step-error" role="alert">{systemOutputError}</p>}</section>
@@ -701,7 +780,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
             <section className="device-card" aria-label="Speaker setup"><h3>Speaker</h3><label>Output{typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype && speakers.length ? <select value={speakerId} disabled={speakerTesting} onChange={(event) => { setSpeakerId(event.target.value); setTestedSpeakerId(null); setSpeakerStatus(""); }}><option value="">{speakers.find((device) => device.deviceId === "default")?.label || "System default"}</option>{speakers.filter((device) => device.deviceId !== "default").map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Speaker ${index + 1}`}</option>)}</select> : <span className="device-default">System output</span>}</label><div className="device-card-actions"><button type="button" className="secondary-button" disabled={microphoneTesting} onClick={() => { if (speakerTesting) stopSpeakerTest(); else void testSpeaker(); }}>{speakerTesting ? "Stop" : "Test speaker"}</button></div>{speakerStatus && <span className="device-status" role="status"><span className={testedSpeakerId === speakerId ? "test-check" : ""} aria-hidden="true">{testedSpeakerId === speakerId ? "✓" : ""}</span>{speakerStatus}</span>}</section>
           </div></details>}
           <div className="go-live-readiness"><label className="interview-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)}/> Everyone whose speech is captured consents, and recording and AI use are allowed.</label>
-          <button type="button" className="primary-button" disabled={!startReady || startingRef.current} onClick={() => void startSession()}>{status === "ended" ? "Start New Session" : inputMode === "system" ? "Start Listening" : "Start Interview"}</button>
+          <button type="button" className="primary-button" disabled={!startReady || startingRef.current} onClick={() => void startSession()}>{inputMode === "system" ? "Start Listening" : "Start Interview"}</button>
           {isTauri() && <button type="button" className="secondary-button hud-toggle-main" onClick={() => void toggleHud()}><HudVisibilityIcon hidden={hudShown}/>{hudShown ? "Hide HUD" : "Open HUD"}</button>}</div></>}
         {running && <>
           {inputMode === "system" && status === "paused" && <label className="field-label go-live-paused-output">Where you’ll hear the interviewer<select value={systemOutputId} onChange={(event) => { systemOutputIdRef.current = event.target.value; setSystemOutputId(event.target.value); setSystemOutputError(""); }}><option value="" disabled>Choose an output</option>{systemOutputs.map((output) => <option key={output.id} value={output.id}>{output.name}{output.isDefault ? " · default" : ""}</option>)}</select></label>}
@@ -717,7 +796,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
       <HudMinimizeGuidance open={hudShown}/>
       {error && <p className="step-error" role="alert">{error}</p>}
       {inputMode === "system" && running && captureHealth && <p className="step-error" role="status">{captureHealth}</p>}
-      {inputMode === "system" && status !== "ready" && <details className="go-live-diagnostics"><summary>Listening diagnostics</summary><dl>
+      {inputMode === "system" && running && <details className="go-live-diagnostics"><summary>Listening diagnostics</summary><dl>
         <dt>Selected output ID</dt><dd><code>{systemOutputId || "None"}</code></dd>
         <dt>Capture</dt><dd>{diagnostics.initialization}</dd>
         <dt>PCM packets</dt><dd>{diagnostics.packets}</dd>
@@ -734,11 +813,23 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
       {running && <><p className="interview-guidance">{inputMode === "system" ? status === "paused" ? "Windows playback capture is off." : "Only the selected Windows output is monitored. Your microphone stays separate." : status === "listening" ? "Mic on · Ask a question, then choose Finish Question." : status === "between" ? "Mic off · Answer naturally, then continue with another question." : status === "opening" || status === "permission" ? "Mic permission is requested only when spoken questions begin." : status === "ending" ? "Mic off · Closing the HUD." : "Mic off · Processing the completed question."}</p>
         {inputMode !== "system" && <details className="interview-text-fallback" open={inputMode === "text" ? true : undefined}><summary>{inputMode === "text" ? "Type a practice question" : "Type a question instead"}</summary><form onSubmit={submitTyped}><label className="field-label">Practice question<input value={typedQuestion} maxLength={500} disabled={status !== "between"} onChange={(event) => setTypedQuestion(event.target.value)}/></label><button type="submit" className="secondary-button" disabled={typedQuestion.trim().length < 4 || status !== "between"}>Use question</button></form></details>}</>}
       {question && running && !hudShown && <section className="interview-recognized" aria-live="polite"><h2>Question heard</h2><p>{question}</p></section>}
-      {status === "ended" && <section className="go-live-summary" aria-label="Session questions"><h2>Questions heard</h2>
-        {sessionQuestions.length ? <ol>{sessionQuestions.map((item) => <li key={item.id}><span>{item.question}</span><small>{outcomeLabel[item.outcome]}</small></li>)}</ol> : <p>No interview questions were recognized this session.</p>}
+      {currentSummary && <section className="go-live-summary" aria-label="Interview summary"><h2>Interview Summary</h2>
+        {summaryDetails(currentSummary)}
+        {savedSummary && !alreadySaved && <p>Saving replaces the previous Go Live summary for this round.</p>}
+        <div className="interview-buttons">
+          <button type="button" className="primary-button" disabled={!summaryStorage || alreadySaved || writingSummary || openingReadyHud}
+            onClick={() => void writeSummary(currentSummary)}>{alreadySaved ? "Summary Saved" : writingSummary ? "Saving…" : "Save Summary"}</button>
+          <button type="button" className="secondary-button" disabled={openingReadyHud || writingSummary}
+            onClick={() => void openReadyHud()}>{openingReadyHud ? "Opening HUD…" : "Start New Session"}</button>
+        </div>
       </section>}
-      {cueNote && <p className="detail-note" role="status">{cueNote}</p>}
-      {cues.length > 0 && !hudDeliveryFailed && <p className="detail-note" role="status">{cues.length} approved Career Memory {cues.length === 1 ? "cue" : "cues"} in the HUD.</p>}
+      {status === "ready" && savedSummary && <details className="go-live-summary"><summary>Saved Interview Summary</summary>
+        {summaryDetails(savedSummary)}
+        <button type="button" className="secondary-button" disabled={writingSummary} onClick={() => void writeSummary(undefined)}>Remove saved summary</button>
+      </details>}
+      {summaryFeedback && <p className={summaryFeedback.failed ? "step-error" : "detail-note"} role={summaryFeedback.failed ? "alert" : "status"}>{summaryFeedback.message}</p>}
+      {running && cueNote && <p className="detail-note" role="status">{cueNote}</p>}
+      {running && cues.length > 0 && !hudDeliveryFailed && <p className="detail-note" role="status">{cues.length} approved Career Memory {cues.length === 1 ? "cue" : "cues"} in the HUD.</p>}
     </section>
     <footer className="page-footer"><span>VantSide</span><span>Consent required · Raw audio stays in this session</span></footer>
   </div></main>;
