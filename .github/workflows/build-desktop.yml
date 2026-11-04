@@ -3,7 +3,7 @@ name: Build VantSide desktop installers
 on:
   push:
     branches:
-      - build/installers-2026-11-04
+      - main
   workflow_dispatch:
 
 permissions:
