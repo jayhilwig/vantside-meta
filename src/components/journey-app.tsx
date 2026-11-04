@@ -33,7 +33,9 @@ export function CompanyIcon({ logo }: { logo?: string }) {
 }
 
 export function RoundCard({ round, selected, onEdit, onDelete, onStatusChange }: { round: MemoryState["rounds"][number]; selected: boolean; onEdit(): void; onDelete(): void; onStatusChange(status: MemoryState["rounds"][number]["status"]): void }) {
-  return <div className={`round-card${selected ? " selected" : ""}`}><button type="button" className="round-item" aria-pressed={selected} onClick={onEdit}>
+  return <div className={`round-card${selected ? " selected" : ""}`} role="presentation" onClick={(event) => {
+    if (!(event.target as Element).closest("button, select, label, a, details")) onEdit();
+  }}><button type="button" className="round-item" aria-pressed={selected} onClick={onEdit}>
     <strong>{round.label}</strong>
   </button><div className="round-card-meta"><span className={`round-date${round.interviewDate ? "" : " empty"}`} aria-label={round.interviewDate ? `Interview date ${round.interviewDate}` : "No interview date set"}>{round.interviewDate || "--/--/----"}</span><label className="round-status-control"><span className="sr-only">Status for {round.label}</span><span className="round-status-check" aria-hidden="true">{round.status === "completed" ? "✓" : ""}</span><select value={round.status} onChange={(event) => onStatusChange(event.target.value as MemoryState["rounds"][number]["status"])}>{(Object.entries(roundStatusLabels) as Array<[MemoryState["rounds"][number]["status"], string]>).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>{selected && <button type="button" className="selected-card-delete" aria-label={`Delete ${round.label} round`} onClick={onDelete}>×</button>}{(round.interviewerLinkedInUrl || round.interviewerPdf) && <div className="round-card-references">
     {round.interviewerLinkedInUrl && /^https:\/\/(?:www\.)?linkedin\.com\/in\//i.test(round.interviewerLinkedInUrl) && <a href={round.interviewerLinkedInUrl} target="_blank" rel="noopener noreferrer">LinkedIn profile ↗</a>}

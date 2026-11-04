@@ -8,7 +8,7 @@ import { BrandMark } from "./practice-app";
 import { HudVisibilityIcon } from "./hud-visibility-icon";
 import { HudMinimizeGuidance } from "./hud-minimize-guidance";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
-import { goLiveReady } from "@/lib/device-preflight";
+import { goLiveReady, systemOutputReady } from "@/lib/device-preflight";
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
 import { startAnswerRecording, type AnswerRecorder } from "@/lib/record-answer";
 import { questionToHud, type HudFact, type HudOpportunity } from "@/lib/interview-hud-pipeline";
@@ -120,7 +120,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
   if (!hudRef.current) hudRef.current = new HudWindowController(tauriHudPort);
   const devicesReady = goLiveReady({ consent, inputMode, microphoneId, speakerId, testedMicrophoneId, testedSpeakerId,
     microphoneTesting, speakerTesting });
-  const startReady = hudPreparationAllowsStart(preparation) && (inputMode === "system" ? consent && !!systemOutputId && !systemOutputError && !outputTesting : devicesReady);
+  const startReady = hudPreparationAllowsStart(preparation) && (inputMode === "system" ? systemOutputReady(consent, systemOutputId, systemOutputError, outputTesting) : devicesReady);
 
   useEffect(() => {
     if (liveMetaCueQa) return;
@@ -516,6 +516,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
 
   async function startSession() {
     if (startingRef.current || activeRef.current || !startReady) return;
+    if (speakerTestRef.current) stopSpeakerTest();
     startingRef.current = true;
     const generation = sequenceRef.current;
     listeningStartedRef.current = false;
@@ -687,7 +688,7 @@ export function InterviewPracticeApp({ projects, opportunity, onBack, onComplete
       <h1>{opportunity.role}</h1><p className="interview-company">{opportunity.company}{opportunity.roundLabel ? ` · ${opportunity.roundLabel}` : ""}{opportunity.interviewer ? ` · ${opportunity.interviewer}` : ""}</p>
       {inputMode !== "system" && <p className="interview-source">A practice partner can ask a question into your selected microphone.</p>}
       <div className="interview-status" role="status" aria-live="polite"><span className={`interview-status-dot ${status}`}/>{status === "ended" ? "Interview ended" : status === "ready"
-          ? preparation === "preparing" ? "Preparing your interview" : !consent ? "Confirm consent to continue" : startReady ? "Ready" : inputMode === "system" ? "Choose a Windows output to continue" : "Test microphone and speaker to continue"
+          ? preparation === "preparing" ? "Preparing your interview" : !consent ? "Confirm consent to continue" : startReady ? "Ready" : inputMode === "system" ? outputTesting ? "Output test in progress" : systemOutputError ? "Check the Windows output" : "Choose a Windows output to continue" : microphoneTesting ? "Microphone test in progress" : "Test your microphone to continue"
           : ({ opening: "Opening HUD or audio", permission: "Opening microphone", listening: "Listening for a question", "system-listening": "Listening to Windows output", paused: "Listening paused", transcribing: "Transcribing question", finding: "Finding relevant memory", between: "Ready for the next question", ending: "Ending interview" } as const)[status]}</div>
       {status === "ready" && <HudPreparationStatus state={preparation}/>}
       <div className="interview-controls">
