@@ -38,6 +38,12 @@ Only approved Career Memory facts are eligible for HUD cues. Baseten is an optio
 
 The AI services have distinct jobs: **understand experience, converse naturally, and decide when a reminder is relevant**. Jev does not invent facts or generate interview answers; the HUD only draws from approved memories.
 
+## Prototype desktop installers
+
+Unsigned hackathon prototype installers are built by [GitHub Actions](https://github.com/jayhilwig/vantside-meta/actions) for Windows x64, macOS Apple Silicon and macOS Intel. See [build instructions and limitations](docs/BUILD_INSTALLERS.md) and the [public-repository security review](docs/PUBLIC_REPO_SECURITY_REVIEW.md).
+
+**Important:** The installers package the desktop interface and local storage, **not** the separate Node.js AI backend. They are not standalone AI-capable releases; running AI workflows requires your own correctly configured local backend. Never share developer API keys with reviewers or include them in an installer. Windows system-output audio capture is not yet available on macOS.
+
 ## Run locally
 
 Requires **Node.js 20.9+** and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/).
