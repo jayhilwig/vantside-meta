@@ -7,7 +7,7 @@ import { InterviewPracticeApp } from "./interview-practice-app";
 import { ConversationalPracticeApp } from "./conversational-practice-app";
 import { startLiveInterview, type LiveInterview, type LiveStatus } from "@/lib/live-interview";
 import { deduplicateLiveProposals, extractLiveEvidenceProposals, liveEvidenceChunks } from "@/lib/live-evidence";
-import { advanceInterviewClock, emptyInterviewClock, interviewClockSeconds, interviewEncouragement, interviewTime } from "@/lib/interview-timing";
+import { advanceInterviewClock, crossedInterviewMilestone, emptyInterviewClock, interviewClockSeconds, interviewTime, MAX_INTERVIEW_SECONDS } from "@/lib/interview-timing";
 import { microphonePassed, microphoneSample, speakerPlaybackCompleted } from "@/lib/audio-test-feedback";
 import { startSpeakerTest, type SpeakerTest } from "@/lib/speaker-test";
 import { localApiHeaders } from "@/lib/local-api-auth";
@@ -156,6 +156,9 @@ export function JourneyApp() {
   const [liveLevel, setLiveLevel] = useState(0);
   const [liveElapsed, setLiveElapsed] = useState(0);
   const liveClockRef = useRef(emptyInterviewClock());
+  const lastMilestoneElapsedRef = useRef(0);
+  const milestoneDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [milestoneToast, setMilestoneToast] = useState<string | null>(null);
   const [interviewError, setInterviewError] = useState("");
   const pendingLiveTranscriptRef = useRef("");
   const liveProposalRequestRef = useRef<AbortController | null>(null);
@@ -264,6 +267,7 @@ export function JourneyApp() {
   useEffect(() => () => {
     liveStartRef.current?.abort(); liveRef.current?.close();
     liveProposalRequestRef.current?.abort();
+    if (milestoneDismissRef.current !== null) window.clearTimeout(milestoneDismissRef.current);
   }, []);
 
   useEffect(() => { endLiveRef.current = endLiveInterview; });
@@ -274,7 +278,19 @@ export function JourneyApp() {
     if (!active) return;
     const tick = window.setInterval(() => {
       const { elapsed } = interviewClockSeconds(liveClockRef.current, Date.now());
-      setLiveElapsed(elapsed);
+      const capped = Math.min(elapsed, MAX_INTERVIEW_SECONDS);
+      setLiveElapsed(capped);
+      const milestone = crossedInterviewMilestone(lastMilestoneElapsedRef.current, capped);
+      lastMilestoneElapsedRef.current = capped;
+      if (milestone) {
+        setMilestoneToast(milestone.message);
+        if (milestoneDismissRef.current !== null) window.clearTimeout(milestoneDismissRef.current);
+        milestoneDismissRef.current = window.setTimeout(() => {
+          setMilestoneToast(null);
+          milestoneDismissRef.current = null;
+        }, 4000);
+      }
+      if (elapsed >= MAX_INTERVIEW_SECONDS) void endLiveRef.current();
     }, 1000);
     return () => window.clearInterval(tick);
   }, [liveStatus]);
@@ -293,6 +309,11 @@ export function JourneyApp() {
     setLiveProposalResult("idle");
     pendingLiveTranscriptRef.current = ""; setCanRetryLiveProposals(false);
     liveClockRef.current = emptyInterviewClock(); setLiveElapsed(0);
+    lastMilestoneElapsedRef.current = 0; setMilestoneToast(null);
+    if (milestoneDismissRef.current !== null) {
+      window.clearTimeout(milestoneDismissRef.current);
+      milestoneDismissRef.current = null;
+    }
     liveWallStartedRef.current = null;
     const controller = new AbortController(); liveStartRef.current = controller;
     setLiveStatus("connecting"); setInterviewError("");
@@ -328,6 +349,11 @@ export function JourneyApp() {
     const live = liveRef.current;
     if (!live && !liveStartRef.current) return;
     endingLiveRef.current = true;
+    if (milestoneDismissRef.current !== null) {
+      window.clearTimeout(milestoneDismissRef.current);
+      milestoneDismissRef.current = null;
+    }
+    setMilestoneToast(null);
     if (!live) liveStartRef.current?.abort();
     liveStartRef.current = null;
     liveRef.current = null;
@@ -336,7 +362,7 @@ export function JourneyApp() {
       const transcript = (live ? await live.finish().catch(() => { live.close(); return live.userSpeech(); }) : "").trim();
       setLiveStatus("ended"); setLiveLevel(0);
       const finalTime = interviewClockSeconds(advanceInterviewClock(liveClockRef.current, "ended", Date.now()), Date.now());
-      setLiveElapsed(finalTime.elapsed);
+      setLiveElapsed(Math.min(finalTime.elapsed, MAX_INTERVIEW_SECONDS));
       console.info("Career Memory extraction", { stage: "capture", durationSeconds: liveWallStartedRef.current === null ? 0 :
         Math.round((Date.now() - liveWallStartedRef.current) / 1000), activeSeconds: finalTime.elapsed,
         ...(live?.evidenceStats() ?? { characters: 0, transcriptEvents: 0, estimatedSpeechSegments: 0 }) });
@@ -900,7 +926,7 @@ export function JourneyApp() {
             {["listening", "user-speaking", "speaking"].includes(liveStatus) && <button className="secondary-button" type="button" onClick={pauseInterview}>Pause</button>}
              {liveRunning && <button className="end-interview-button" type="button" onClick={stopInterview} aria-label={`End interview, ${interviewTime(liveElapsed)} elapsed`}><span>End Interview</span></button>}
           </div>
-           {(liveRunning || liveStatus === "ended") && <div className="interview-timing"><time aria-label="Elapsed interview time">{interviewTime(liveElapsed)}</time><div className="interview-timeline" role="img" aria-label={`Interview time ${interviewTime(liveElapsed)}. Helpful milestones at 3, 10, and 30 minutes.`}><span className="interview-timeline-fill" style={{ width: `${Math.min(100, liveElapsed / 1800 * 100)}%` }}/><i style={{ left: "10%" }}/><i style={{ left: "33.33%" }}/><i style={{ left: "100%" }}/></div><span className="interview-milestones">3 · 10 · 30 min</span>{interviewEncouragement(liveElapsed) && <span className="interview-encouragement">{interviewEncouragement(liveElapsed)}</span>}</div>}
+           {(liveRunning || liveStatus === "ended") && <div className="interview-timing"><time aria-label="Elapsed interview time">{interviewTime(liveElapsed)}</time><div className="interview-timeline" role="img" aria-label="Interview progress toward the 30-minute maximum, with milestones at 3 and 10 minutes"><span className="interview-timeline-fill" style={{ width: `${Math.min(100, liveElapsed / MAX_INTERVIEW_SECONDS * 100)}%` }}/><i style={{ left: "10%" }}/><i style={{ left: "33.33%" }}/><i style={{ left: "100%" }}/></div><span className="interview-milestones">30 min (max)</span>{milestoneToast && <span className="interview-encouragement" role="status" aria-live="polite">{milestoneToast}</span>}</div>
           {reviewingLiveProposals && <div className="resume-processing interview-processing" role="status" aria-live="polite"><span className="resume-processing-dots" aria-hidden="true"><i/><i/><i/><i/></span><span><strong>Analyzing your interview…</strong><br/>Building your Career Memory.</span></div>}
           <section className="memory-section" aria-labelledby="new-memory-heading">
             <h3 id="new-memory-heading">New from Your Interview</h3>
