@@ -157,7 +157,7 @@ export function JourneyApp() {
   const [liveElapsed, setLiveElapsed] = useState(0);
   const liveClockRef = useRef(emptyInterviewClock());
   const lastMilestoneElapsedRef = useRef(0);
-  const milestoneDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const milestoneDismissRef = useRef<number | null>(null);
   const [milestoneToast, setMilestoneToast] = useState<string | null>(null);
   const [interviewError, setInterviewError] = useState("");
   const pendingLiveTranscriptRef = useRef("");
