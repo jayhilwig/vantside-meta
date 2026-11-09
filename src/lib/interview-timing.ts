@@ -18,6 +18,15 @@ export function interviewClockSeconds(clock: InterviewClock, now: number) {
 }
 
 export const interviewTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-export const interviewEncouragement = (seconds: number) => seconds >= 1800 ? "30 minutes — your Career Memory may be richer for it."
-  : seconds >= 600 ? "10 minutes — more detail can reveal richer Career Memory."
-  : seconds >= 180 ? "3 minutes — keep sharing what you did and why." : "";
+export const MAX_INTERVIEW_SECONDS = 30 * 60;
+
+export const interviewMilestones = [
+  { seconds: 3 * 60, message: "✨ Nice work! Keep the stories coming." },
+  { seconds: 10 * 60, message: "💪 Practice makes progress." },
+  { seconds: 28 * 60, message: "⏳ Two minutes left. We'll wrap up at 30." },
+] as const;
+
+// Emit a milestone once as the clock crosses it, never throughout the remaining session.
+export function crossedInterviewMilestone(previous: number, current: number): typeof interviewMilestones[number] | null {
+  return interviewMilestones.find((milestone) => previous < milestone.seconds && current >= milestone.seconds) ?? null;
+}

@@ -452,8 +452,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .interview-timeline { position: relative; width: min(180px, 40vw); height: 5px; border-radius: 9px; background: #e5e9e2; }
 .interview-timeline-fill { display: block; height: 100%; border-radius: inherit; background: var(--action); transition: width 1s linear; }
 .interview-timeline i { position: absolute; top: -2px; width: 2px; height: 9px; background: #8a9587; }
-.interview-milestones { white-space: nowrap; }
-.interview-encouragement { flex-basis: 100%; }
+.interview-milestones { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.interview-encouragement { display: inline-flex; align-items: center; flex-basis: 100%; width: fit-content; max-width: 100%; padding: 7px 10px; border: 1px solid #c9d8bb; border-radius: 5px; background: #f1f7e9; color: #365735; font-size: 11px; line-height: 1.4; animation: milestone-arrive .24s ease-out; }
+@keyframes milestone-arrive { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .end-interview-button { position: relative; display: inline-flex; align-items: center; gap: 12px; overflow: hidden; min-height: 38px; padding: 9px 12px; border: 1px solid #bfc6bd; border-radius: 4px; background: white; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 700; }
 .end-interview-button:hover { border-color: var(--action); }
 .end-interview-button:focus-visible { outline: 3px solid var(--action); outline-offset: 2px; }
@@ -479,6 +480,15 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .review-fact p { margin: 7px 0 0; color: #777772; font-size: 10px; line-height: 1.5; }
 .review-fact .inline-actions { margin-top: 12px; }
 .review-pending-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.review-pending-heading strong { font-size: 12px; line-height: 1.5; }
+.review-pending-details { margin-top: 8px; }
+.review-pending-details summary { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: #5a655a; font-size: 11px; line-height: 1.4; }
+.review-pending-details summary:hover { color: var(--action); }
+.review-pending-details summary:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
+.review-pending-details[open] summary { margin-bottom: 12px; }
+.review-pending-details .field-label { margin-bottom: 10px; }
+.review-pending-details .review-evidence-label { font-size: 10px; font-weight: 650; color: #5e5e59; }
+.review-pending-details blockquote { margin: 6px 0 0; padding: 7px 11px; border-left: 2px solid #c8d8bd; color: #60665f; font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pending-delete { border: 0; background: transparent; color: var(--delete-red); cursor: pointer; font-size: 19px; line-height: 1; }
 .pending-delete:focus-visible { outline: 2px solid var(--delete-red); outline-offset: 2px; }
 .dismiss-button { border-color: #d9d9d4; background: #f7f7f4; color: #62625d; }
