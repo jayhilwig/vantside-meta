@@ -452,8 +452,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .interview-timeline { position: relative; width: min(180px, 40vw); height: 5px; border-radius: 9px; background: #e5e9e2; }
 .interview-timeline-fill { display: block; height: 100%; border-radius: inherit; background: var(--action); transition: width 1s linear; }
 .interview-timeline i { position: absolute; top: -2px; width: 2px; height: 9px; background: #8a9587; }
-.interview-milestones { white-space: nowrap; }
-.interview-encouragement { flex-basis: 100%; }
+.interview-milestones { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.interview-encouragement { display: inline-flex; align-items: center; flex-basis: 100%; width: fit-content; max-width: 100%; padding: 7px 10px; border: 1px solid #c9d8bb; border-radius: 5px; background: #f1f7e9; color: #365735; font-size: 11px; line-height: 1.4; animation: milestone-arrive .24s ease-out; }
+@keyframes milestone-arrive { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .end-interview-button { position: relative; display: inline-flex; align-items: center; gap: 12px; overflow: hidden; min-height: 38px; padding: 9px 12px; border: 1px solid #bfc6bd; border-radius: 4px; background: white; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 700; }
 .end-interview-button:hover { border-color: var(--action); }
 .end-interview-button:focus-visible { outline: 3px solid var(--action); outline-offset: 2px; }
