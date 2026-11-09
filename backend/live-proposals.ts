@@ -12,7 +12,7 @@ const instruction = "Return JSON only: {proposals:[{title,text,source}]}. These 
   "Use title for a short, clear description of the contribution, decision, or outcome that a person can scan in a review list; do not quote the transcript in title. " +
   "Use text for one concise, polished, complete career fact in plain English (not a transcript). Remove ums, repeats, hedges, fillers, and false starts without changing meaning. Describe efforts as efforts, plans as plans, and results as results only when actually supported. Never convert team intent into a claimed personal achievement. " +
   "Keep source as a separate short, contiguous VERBATIM transcript excerpt supporting the text; do not polish or paraphrase source. Do not make text and source identical unless the original is already concise and polished. " +
-  "Use a project or role title mentioned in the transcript, or a concise descriptive label. Never add unsupported outcomes, numbers, qualifications, or certainty. Ignore interviewer speech, hypotheticals, and restricted assessment answers. If no fact is clearly supported, return an empty array.";
+  "Mention the project or role in the title when it helps, but prioritize the specific extracted fact. Never add unsupported outcomes, numbers, qualifications, or certainty. Ignore interviewer speech, hypotheticals, and restricted assessment answers. If no fact is clearly supported, return an empty array.";
 
 export async function proposeLiveMemory(body: unknown, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
   const input = inputSchema.safeParse(body);
