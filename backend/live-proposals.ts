@@ -9,6 +9,9 @@ const instruction = "Return JSON only: {proposals:[{title,text,source}]}. These 
   "Read the entire candidate-speech excerpt. Extract each distinct concrete fact from every project or role discussed: the person's contribution, design or technical decisions, research, collaboration, challenges, tradeoffs, explicitly stated measurable results, and lessons learned. " +
   "One project may support several separate facts. Do not collapse different actions or outcomes into one generic summary. Do not require any particular number of facts and do not pad sparse evidence. " +
   "For source, copy one short contiguous excerpt verbatim from the supplied candidate transcript that supports the whole fact. Preserve numbers in the form spoken in that excerpt; never convert a worded number into an unsupported digit. " +
+  "Use title for a short, clear description of the contribution, decision, or outcome that a person can scan in a review list; do not quote the transcript in title. " +
+  "Use text for one concise, polished, complete career fact in plain English (not a transcript). Remove ums, repeats, hedges, fillers, and false starts without changing meaning. Describe efforts as efforts, plans as plans, and results as results only when actually supported. Never convert team intent into a claimed personal achievement. " +
+  "Keep source as a separate short, contiguous VERBATIM transcript excerpt supporting the text; do not polish or paraphrase source. Do not make text and source identical unless the original is already concise and polished. " +
   "Use a project or role title mentioned in the transcript, or a concise descriptive label. Never add unsupported outcomes, numbers, qualifications, or certainty. Ignore interviewer speech, hypotheticals, and restricted assessment answers. If no fact is clearly supported, return an empty array.";
 
 export async function proposeLiveMemory(body: unknown, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
